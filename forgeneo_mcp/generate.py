@@ -136,6 +136,7 @@ def build_payload(
     height: int = 1024,
     seed: int = -1,
     batch_size: int = 1,
+    distilled_cfg_scale: float | None = None,
     extra: dict | None = None,
 ) -> dict:
     payload: dict[str, Any] = {
@@ -152,6 +153,11 @@ def build_payload(
         payload["steps"] = steps
     if cfg_scale is not None:
         payload["cfg_scale"] = cfg_scale
+    if distilled_cfg_scale is not None:
+        # Forge feeds this into set_shift(); the UI labels it "Shift" or
+        # "Distilled CFG Scale" per architecture. Omitting it does not mean
+        # "use the architecture default" - it means the API's own 3.5.
+        payload["distilled_cfg_scale"] = distilled_cfg_scale
     if sampler_name:
         payload["sampler_name"] = sampler_name
     if scheduler:

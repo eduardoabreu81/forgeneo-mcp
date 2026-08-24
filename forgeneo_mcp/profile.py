@@ -52,6 +52,29 @@ class TurboAssessment:
         }
 
 
+def instance_defaults(options: dict, preset: str | None, mode: str = "t2i") -> dict:
+    """Read the per-architecture defaults the running instance will apply.
+
+    Forge exposes these as `<preset>_<mode>_<field>` options. They beat the
+    table copied into presets.py because they come from the instance itself,
+    and because any field left out of a request falls back to the API model's
+    own defaults, which know nothing about the loaded architecture — that is how
+    a generation picked up shift 3.5 when the architecture asks for 3.0.
+
+    A width or height of 0 means "auto", so it is treated as unset.
+    """
+    if not preset:
+        return {}
+    prefix = f"{preset}_{mode}_"
+    found: dict = {}
+    for field_name in ("step", "cfg", "dcfg", "sampler", "scheduler", "width", "height"):
+        value = options.get(prefix + field_name)
+        if value in (None, "", 0, 0.0):
+            continue
+        found[field_name] = value
+    return found
+
+
 @dataclass(frozen=True)
 class ModuleCheck:
     path: str
@@ -70,6 +93,8 @@ class ModelProfile:
     steps: float | None
     cfg: float | None
     shift: float | None
+    width: int | None
+    height: int | None
     prompt_style: str
     parameter_source: str
     accelerators: tuple[str, ...]
@@ -90,7 +115,11 @@ class ModelProfile:
                 "scheduler": self.scheduler,
                 "steps": self.steps,
                 "cfg": self.cfg,
+                # Forge maps this onto distilled_cfg_scale, which the UI labels
+                # "Shift" or "Distilled CFG Scale" depending on architecture.
                 "shift": self.shift,
+                "width": self.width,
+                "height": self.height,
             },
             "parameter_source": self.parameter_source,
             "prompt_style": self.prompt_style,
@@ -125,6 +154,7 @@ def build_profile(client: ForgeClient, history: HistoryIndex) -> ModelProfile | 
 
     regime = history.regime_for(checkpoint) if checkpoint else None
     fallback = defaults_for(preset)
+    live = instance_defaults(data, preset)
 
     # The preset is the architecture talking, and architecture is not a matter
     # of taste: sampler, scheduler and shift come from it whenever it is known.
@@ -141,9 +171,18 @@ def build_profile(client: ForgeClient, history: HistoryIndex) -> ModelProfile | 
             "confirm the intended model family before generating"
         )
 
+    # Structural parameters follow the instance first, then the copied table.
+    arch_sampler = live.get("sampler") or (fallback.sampler if fallback else None)
+    arch_scheduler = live.get("scheduler") or (fallback.scheduler if fallback else None)
+    shift = live.get("dcfg")
+    if shift is None and fallback:
+        shift = fallback.shift
+    width = _as_int(live.get("width"))
+    height = _as_int(live.get("height"))
+
     if regime and regime.steps is not None:
-        sampler = fallback.sampler if fallback else regime.sampler
-        scheduler = fallback.scheduler if fallback else regime.scheduler
+        sampler = arch_sampler or regime.sampler
+        scheduler = arch_scheduler or regime.scheduler
         if regime.samples >= MIN_CONFIDENT_SAMPLES and regime.sampler and fallback:
             if regime.sampler != fallback.sampler:
                 warnings.append(
@@ -153,8 +192,9 @@ def build_profile(client: ForgeClient, history: HistoryIndex) -> ModelProfile | 
                 sampler = regime.sampler
                 scheduler = regime.scheduler or scheduler
         steps, cfg = regime.steps, regime.cfg
+        structural = "instance" if live.get("sampler") else "preset table"
         source = (
-            f"architecture preset '{preset}' for sampler/scheduler; "
+            f"{structural} defaults for '{preset}' (sampler, scheduler, shift); "
             f"history ({regime.samples} generations) for steps and CFG"
         )
         accelerators = regime.accelerators
@@ -176,10 +216,14 @@ def build_profile(client: ForgeClient, history: HistoryIndex) -> ModelProfile | 
                     f"{fallback.steps} steps at CFG {fallback.cfg:g}"
                 )
             warnings.append(note)
-    elif fallback:
-        sampler, scheduler = fallback.sampler, fallback.scheduler
-        steps, cfg = float(fallback.steps), fallback.cfg
-        source = f"preset defaults for '{preset}' (no history for this checkpoint)"
+    elif live or fallback:
+        sampler, scheduler = arch_sampler, arch_scheduler
+        steps = _as_float(live.get("step")) or (float(fallback.steps) if fallback else None)
+        cfg = _as_float(live.get("cfg"))
+        if cfg is None and fallback:
+            cfg = fallback.cfg
+        origin = "instance" if live else "preset table"
+        source = f"{origin} defaults for '{preset}' (no history for this checkpoint)"
         accelerators, samples = (), 0
     else:
         sampler = scheduler = steps = cfg = None
@@ -221,7 +265,9 @@ def build_profile(client: ForgeClient, history: HistoryIndex) -> ModelProfile | 
         scheduler=scheduler,
         steps=steps,
         cfg=cfg,
-        shift=fallback.shift if fallback else None,
+        shift=shift,
+        width=width,
+        height=height,
         prompt_style=prompt_style,
         parameter_source=source,
         accelerators=accelerators,
@@ -240,6 +286,20 @@ def build_profile(client: ForgeClient, history: HistoryIndex) -> ModelProfile | 
         ),
         warnings=tuple(warnings),
     )
+
+
+def _as_int(value) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _as_float(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _check_modules(client: ForgeClient, options: dict, preset: str | None) -> tuple[ModuleCheck, ...]:

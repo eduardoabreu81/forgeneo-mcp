@@ -154,8 +154,9 @@ def generate(
     cfg_scale: float | None = None,
     sampler_name: str = "",
     scheduler: str = "",
-    width: int = 1024,
-    height: int = 1024,
+    shift: float | None = None,
+    width: int = 0,
+    height: int = 0,
     seed: int = -1,
     batch_size: int = 1,
     init_image: str = "",
@@ -167,7 +168,9 @@ def generate(
     The prompt is sent verbatim: include any `<lora:name:weight>` yourself. With
     use_profile_defaults on, missing sampling parameters are filled from what the
     loaded model actually used before, so leave them unset unless you mean to
-    override. Returns file paths when the output folder is readable.
+    override. That includes `shift` (Forge's distilled_cfg_scale) and the
+    dimensions: leaving them at 0 takes the architecture's own values instead of
+    a generic default. Returns file paths when the output folder is readable.
 
     Pass `init_image` (a local file path) to run img2img instead, where
     `denoising_strength` controls how far the result may drift from it: around
@@ -190,6 +193,9 @@ def generate(
         "cfg_scale": cfg_scale,
         "sampler_name": sampler_name or None,
         "scheduler": scheduler or None,
+        "distilled_cfg_scale": shift,
+        "width": width or None,
+        "height": height or None,
     }
     applied_from_profile: list[str] = []
 
@@ -202,6 +208,9 @@ def generate(
                 ("cfg_scale", profile.cfg),
                 ("sampler_name", profile.sampler),
                 ("scheduler", profile.scheduler),
+                ("distilled_cfg_scale", profile.shift),
+                ("width", profile.width),
+                ("height", profile.height),
             ):
                 if resolved[key] is None and value is not None:
                     resolved[key] = value
@@ -214,8 +223,9 @@ def generate(
         cfg_scale=resolved["cfg_scale"],
         sampler_name=resolved["sampler_name"],
         scheduler=resolved["scheduler"],
-        width=width,
-        height=height,
+        distilled_cfg_scale=resolved["distilled_cfg_scale"],
+        width=resolved["width"] or 1024,
+        height=resolved["height"] or 1024,
         seed=seed,
         batch_size=max(1, int(batch_size)),
         extra=extra or None,
