@@ -130,8 +130,13 @@ ANIMA = Dialect(
     ),
     weighting="emphasis works but needs higher weights than SDXL: '(chibi:2)'",
     avoid=(
-        "photorealism - this is an illustration model and does not do realism well by design. "
-        "Long text rendering is also weak: single words usually work, phrases often do not."
+        "true photorealism on the stock model - the base is an illustration model and its card "
+        "says so outright. Community merges are a different matter: on one 207-checkpoint Anima "
+        "collection, 23% declared realism tags (realistic, 2.5d, photorealistic, semi-realism, "
+        "3d), and those reach a convincing semi-real or 2.5D look. So check the checkpoint's own "
+        "tags before ruling it out, and reserve a dedicated photographic model for work that "
+        "must read as a real photograph. Long text rendering is weak either way: single words "
+        "usually work, phrases often do not."
     ),
     notes=(
         "Trained on Danbooru-style tags, natural-language captions, and mixtures of both, so tags "

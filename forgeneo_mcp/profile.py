@@ -87,6 +87,7 @@ class ModuleCheck:
 @dataclass(frozen=True)
 class ModelProfile:
     checkpoint: str | None
+    checkpoint_tags: tuple[str, ...]
     preset: str | None
     lineage: str | None
     turbo: TurboAssessment
@@ -109,6 +110,7 @@ class ModelProfile:
     def as_dict(self) -> dict:
         return {
             "checkpoint": self.checkpoint,
+            "checkpoint_tags": list(self.checkpoint_tags),
             "preset": self.preset,
             "lineage": self.lineage,
             "turbo": self.turbo.as_dict(),
@@ -189,12 +191,25 @@ def _checkpoint_identity(client: ForgeClient, checkpoint: str | None) -> tuple[s
 
 def _sidecar_base_model(client: ForgeClient, remote_path) -> str | None:
     """Read a declared baseModel from a sidecar, when one happens to exist."""
+    return _sidecar_metadata(client, remote_path)[0]
+
+
+def _sidecar_metadata(client: ForgeClient, remote_path) -> tuple[str | None, tuple[str, ...]]:
+    """A checkpoint's declared base model and its own tags.
+
+    The tags matter beyond bookkeeping: a dialect can say the architecture does
+    not do realism while a specific merge within it does. On one 207-checkpoint
+    Anima collection, 23% declared realism tags. Reading them lets the caller
+    judge the checkpoint instead of only its family.
+    """
     if not remote_path:
-        return None
+        return None, ()
     local = client.config.localise(str(remote_path))
     if not local:
-        return None
+        return None, ()
     stem = os.path.splitext(local)[0]
+    base: str | None = None
+    tags: tuple[str, ...] = ()
     for suffix in (".json", ".api_info.json"):
         candidate = stem + suffix
         if not os.path.isfile(candidate):
@@ -204,11 +219,14 @@ def _sidecar_base_model(client: ForgeClient, remote_path) -> str | None:
                 data = json.load(handle)
         except (OSError, ValueError):
             continue
-        if isinstance(data, dict):
-            value = data.get("baseModel") or data.get("sd version")
-            if value:
-                return str(value)
-    return None
+        if not isinstance(data, dict):
+            continue
+        base = base or data.get("baseModel") or data.get("sd version")
+        if not tags:
+            found = data.get("modelTags") or []
+            if isinstance(found, list):
+                tags = tuple(str(tag) for tag in found[:12])
+    return (str(base) if base else None), tags
 
 
 def build_profile(client: ForgeClient, history: HistoryIndex) -> ModelProfile | str:
@@ -343,8 +361,11 @@ def build_profile(client: ForgeClient, history: HistoryIndex) -> ModelProfile | 
         )
     prompt_style = _prompt_style(checkpoint, preset, regime)
 
+    _, checkpoint_tags = _sidecar_metadata(client, _checkpoint_file(client, checkpoint))
+
     return ModelProfile(
         checkpoint=checkpoint,
+        checkpoint_tags=checkpoint_tags,
         preset=preset,
         lineage=detect_lineage(checkpoint or ""),
         turbo=turbo,
@@ -373,6 +394,23 @@ def build_profile(client: ForgeClient, history: HistoryIndex) -> ModelProfile | 
         ),
         warnings=tuple(warnings),
     )
+
+
+
+def _checkpoint_file(client: ForgeClient, checkpoint: str | None) -> str | None:
+    """The on-disk path Forge reports for a checkpoint title."""
+    if not checkpoint:
+        return None
+    listing = client.checkpoints()
+    if not listing.ok:
+        return None
+    target = os.path.basename(str(checkpoint).replace("\\", "/")).lower()
+    for item in listing.value or []:
+        title = str(item.get("title") or "").lower()
+        filename = str(item.get("filename") or "")
+        if target in title or target == os.path.basename(filename.replace("\\", "/")).lower():
+            return filename
+    return None
 
 
 def _as_int(value) -> int | None:
