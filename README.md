@@ -8,109 +8,67 @@
 [![Version](https://img.shields.io/badge/Version-0.1.0-brightgreen)](https://github.com/eduardoabreu81/forgeneo-mcp)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> **MCP server for [Stable Diffusion WebUI Forge - Neo](https://github.com/Haoming02/sd-webui-forge-classic/tree/neo)** · Give any MCP-capable AI agent the ability to generate images on your own GPU
+> **MCP server for [Stable Diffusion WebUI Forge - Neo](https://github.com/Haoming02/sd-webui-forge-classic/tree/neo)** · Generate images on your own GPU, from any AI agent that speaks MCP
 
 </div>
 
-Lets Claude, or any agent that speaks MCP, drive your local Forge Neo — reading which checkpoint is loaded, the sampling parameters that suit it, and the prompt dialect it expects, then generating from a prompt the agent wrote itself.
+Ask Claude — or any MCP-capable agent — for an image, and it generates on your local Forge Neo. It reads which checkpoint is loaded, works out the sampling parameters and prompt style that model expects, writes the prompt, and hands you back the file.
 
-Most of the work happens *before* the prompt is written. How many steps this checkpoint really wants, whether guidance belongs near 1 or well above it, whether to write booru tags or full sentences, which quality tags help rather than dilute, whether a turbo LoRA is carrying the low step count — none of it is exposed by the API, and none of it fails loudly when wrong. It just produces worse images.
+You never have to dictate steps, CFG or sampler unless you want to. Those come from your own setup: your instance's settings, your past generations, your checkpoint's metadata. Where something cannot be determined, it asks instead of guessing.
 
-The bridge answers those questions from **your** setup — your instance's own settings, your checkpoint's metadata, and your past generations if you have any. Where the evidence runs out it says so and asks, rather than applying numbers that were right on somebody else's machine. A fresh install with an empty output folder works fine; it simply has less to go on, and says which pieces are missing.
-
-> [!Important]
-> Forge Neo must be started with `--api`. No extension, no custom node, no changes to your Forge installation — the bridge is read-only and talks to the REST API that Forge already exposes.
+> [!IMPORTANT]
+> Forge Neo must run with `--api`. Nothing is installed into your Forge folder — no extension, no custom node. The bridge talks to the REST API that Forge already exposes.
 
 ---
 
 ## 📋 Table of Contents
 
-- [Features](#-features)
-- [In practice](#-in-practice)
+- [Requirements](#-requirements)
 - [Installation](#-installation)
 - [Configuration](#-configuration)
+- [First run](#-first-run)
+- [Using it](#-using-it)
 - [Tools](#-tools)
-- [How it decides](#-how-it-decides)
+- [Troubleshooting](#-troubleshooting)
+- [What it does for you](#-what-it-does-for-you)
 - [Roadmap](#-roadmap)
 - [Credits](#-credits)
 
 ---
 
-## ✨ Features
+## ✅ Requirements
 
-> ⭐ = beyond what a plain API wrapper gives you
+| | |
+|---|---|
+| **Forge Neo** | running with `--api` |
+| **Python** | 3.10 or newer, on the machine running the agent |
+| **An MCP client** | Claude Code, Claude Desktop, Cursor, or anything else that speaks MCP |
 
-### 🖼️ Generation
-- **txt2img and img2img** from a prompt the agent wrote, sent verbatim
-- **Never injects a LoRA on its own** — discovery is a separate tool, the decision stays with the agent ⭐
-- Returns **file paths** rather than base64, so a batch does not flood the agent's context ⭐
-- Sends every parameter that matters explicitly, instead of letting API defaults leak in ⭐
-
-### 🧭 Model profile ⭐
-- Which checkpoint and architecture preset are live, and the checkpoint's own tags
-- **Suggests rather than dictates** — size, steps, CFG and quality settings come from your setup where it can tell, and are put to you as a question where it cannot ⭐
-- **Sampling values taken from your own outputs** when you have them, and from the instance's settings when you do not
-- Where distilled or accelerator LoRAs are part of the workflow, keeps their effect separate from the checkpoint's own behaviour ⭐
-- **Turbo detection as a tri-state** with evidence — `unknown` is a real answer, not a silent `false`
-- Validates the preset's VAE and text encoders — that the files exist, and that they match what the architecture expects ⭐
-
-> [!Note]
-> Image generation only for now — video (Wan) is on the [roadmap](#-roadmap).
-
-### 🗣️ Prompt dialects ⭐
-- **Quality tags per lineage** — a score ladder, booru quality tags, an ordered template, or none at all, depending on what the loaded model was trained on
-- Tag spelling, artist syntax, emphasis weighting, and what each model is *not* for
-- Resolved from cache, an optional CivitAI lookup, your own past prompts, the architecture, or your LoRA library — reporting which
-- Where a family covers several lineages, it asks once and remembers, instead of guessing
-
-### 🎨 LoRA library ⭐
-- Search by name, title, tag, trigger word or description — **on demand**, so a large library costs nothing until it matters
-- Trigger words from the safetensors header, sidecars, or your own generation history
-- Separates **accelerators** (turbo/distill/dmd2/lcm) from content LoRAs, because they change the sampling regime rather than the image
-
-### 🔌 Environment probe ⭐
-- Routes read from the live OpenAPI document, not a hardcoded list
-- Reports which metadata sources exist and degrades when they do not
-- Points at the official download for a missing VAE or text encoder, and can fetch it — never without your explicit go-ahead ⭐
-- Explains an empty history — including when `enable_pnginfo` and `save_txt` are both off
-
----
-
-## 💬 In practice
-
-You ask for an image in your own words. Before writing anything, the agent checks what is loaded and how that model wants to be addressed:
-
-> **You** — *"a cover image for a post about winter hiking"*
->
-> The agent reads the profile, finds the loaded model expects prose rather than tags and works at low guidance, writes the prompt that way, and generates. It never asks you for a step count, because the profile already answered that.
-
-> **You** — *"same scene, but in the style I use for thumbnails"*
->
-> The agent searches your LoRAs for that style, picks up its trigger word and the weight you normally give it, and writes it into the prompt itself. Nothing is added behind your back — the LoRA appears in the prompt you can read.
-
-When something cannot be determined — most often which lineage an SDXL checkpoint came from — it asks once, and remembers the answer for that file.
+Only if Forge runs on a different machine: network access to it, and a file share if you want results as file paths rather than base64.
 
 ---
 
 ## 📦 Installation
 
-### 1. Enable the API in Forge Neo
+### 1 · Turn on the API in Forge Neo
 
-Add `--api` to your `COMMANDLINE_ARGS`:
+Edit your `webui-user.bat` (Windows) or `webui-user.sh` (Linux) and add `--api`:
 
 ```bat
 set COMMANDLINE_ARGS=--api
 ```
 
-That is the entire Forge-side change. Nothing is installed into your Forge folder.
+Keep whatever flags you already had — just append `--api`. Restart Forge.
 
-### 2. Install the bridge
+> **Check it worked:** open `http://127.0.0.1:7860/docs`. If you see `/sdapi/v1/...` endpoints listed, the API is on.
+
+### 2 · Install the bridge
 
 ```bash
 pip install git+https://github.com/eduardoabreu81/forgeneo-mcp
 ```
 
-### 3. Register it with your agent
+### 3 · Register it with your agent
 
 **Claude Code**
 
@@ -118,7 +76,7 @@ pip install git+https://github.com/eduardoabreu81/forgeneo-mcp
 claude mcp add forgeneo -e FORGE_URL=http://127.0.0.1:7860 -- forgeneo-mcp
 ```
 
-**Any client using `mcp.json`**
+**Claude Desktop, Cursor, or any client with an `mcp.json`**
 
 ```json
 {
@@ -131,11 +89,32 @@ claude mcp add forgeneo -e FORGE_URL=http://127.0.0.1:7860 -- forgeneo-mcp
 }
 ```
 
-Requires Python 3.10+ and a Forge Neo instance reachable over HTTP.
+Restart your client — MCP servers load at startup, so the tools appear in a new session.
+
+---
+
+## ⚙️ Configuration
+
+Everything is optional except `FORGE_URL`, and even that only if Forge is not at `127.0.0.1:7860`.
+
+| Variable | What it does | Default |
+|---|---|---|
+| `FORGE_URL` | Where Forge is | `http://127.0.0.1:7860` |
+| `FORGE_AUTH` | `user:password`, if you started Forge with `--api-auth` | none |
+| `FORGE_PATH_MAP` | Translates Forge's paths into ones your machine can reach | none |
+| `FORGE_OUTPUT_DIR` | Your output folder, if it cannot be found automatically | auto |
+| `FORGE_TIMEOUT` | Seconds to wait on a request | `600` |
+| `FORGE_HISTORY_LIMIT` | How many recent images to read when learning your settings | `600` |
+| `FORGE_CIVITAI_LOOKUP` | `1` allows identifying a checkpoint by hash online | off |
+| `FORGENEO_CACHE_DIR` | Where your confirmed answers are remembered | `~/.forgeneo-mcp` |
+
+### Everything on one machine
+
+Nothing else to do — the defaults cover it.
 
 ### Forge on another machine
 
-Start Forge with `--listen --api`, point `FORGE_URL` at it, and map its paths so results come back as files instead of base64:
+Start Forge with `--listen --api`, then point the bridge at it and map its paths:
 
 ```bash
 claude mcp add forgeneo \
@@ -144,83 +123,126 @@ claude mcp add forgeneo \
   -- forgeneo-mcp
 ```
 
-> [!Note]
-> `--listen` exposes the API to your network without authentication. Add `--api-auth user:password` and set `FORGE_AUTH` to match if that matters on your network.
+`FORGE_PATH_MAP` reads as **what Forge calls it** = **what you call it**. Forge reports paths like `D:\forge-neo\output\...`; if you reach that same folder as `\\gpu-box\share\forge-neo\output\...`, that mapping lets the bridge hand you file paths instead of megabytes of base64.
+
+Without it everything still works — you just get base64.
+
+> [!NOTE]
+> `--listen` exposes the API to your network with no password. If that matters where you are, add `--api-auth user:password` to Forge and set `FORGE_AUTH` to match.
 
 ---
 
-## ⚙️ Configuration
+## 🚀 First run
 
-Everything is optional except the URL when Forge is not on localhost.
+Open a new session and ask your agent to check the connection. It calls `capabilities` and reports what it found:
 
-| Variable | Purpose | Default |
-|---|---|---|
-| `FORGE_URL` | Base URL of the instance | `http://127.0.0.1:7860` |
-| `FORGE_AUTH` | `user:password` when started with `--api-auth` | none |
-| `FORGE_PATH_MAP` | `REMOTE=LOCAL` prefix pairs, `;`-separated | none |
-| `FORGE_OUTPUT_DIR` | Output folder, when it cannot be derived | auto |
-| `FORGE_TIMEOUT` | Request timeout in seconds | `600` |
-| `FORGE_HISTORY_LIMIT` | How many recent outputs to index | `600` |
-| `FORGE_CIVITAI_LOOKUP` | `1` allows an optional lineage lookup by file hash | off |
-| `FORGENEO_CACHE_DIR` | Where confirmed dialects are cached | `~/.forgeneo-mcp` |
+```
+reachable    true
+counts       checkpoints · loras · samplers · schedulers · modules
+filesystem   file paths        (or: base64 — no readable output dir)
+history      how many past generations it could read
+```
 
-Without `FORGE_PATH_MAP` the bridge still works — it just returns base64 rather than paths.
+Three things worth a glance:
 
-`FORGE_CIVITAI_LOOKUP` is the **only** feature that leaves your machine: a public, read-only by-hash endpoint, no account, nothing uploaded but the hash Forge already computed.
+- **`filesystem: base64`** — `FORGE_PATH_MAP` is missing or wrong. Not fatal, but results will bloat your conversation.
+- **`history: 0`** — it cannot learn from your past work. Usually the output folder is unreachable, or Forge is saving no metadata (see [Troubleshooting](#-troubleshooting)).
+- **`loras: 0`** with LoRAs installed — Forge's own LoRA list is empty; refresh it in the UI.
+
+---
+
+## 💬 Using it
+
+Just ask. The agent handles the rest.
+
+> **"a cover image for a post about winter hiking"**
+>
+> It checks what is loaded, sees whether that model wants prose or tags, writes the prompt accordingly, and generates.
+
+> **"same thing but in the style I use for thumbnails"**
+>
+> It searches your LoRAs, finds the one you mean, picks up its trigger word and the weight you normally use, and writes it into the prompt — visibly, so you can read what was sent.
+
+> **"switch to my portrait model"**
+>
+> It loads that checkpoint. If it belongs to a different architecture, the matching VAE and text encoder come with it.
+
+Other things worth asking directly:
+
+- *"what model is loaded and how should I prompt it?"* — the profile, in plain terms
+- *"which of my LoRAs work with this checkpoint?"* — filtered to compatible ones
+- *"is my flux setup complete?"* — checks the VAE and text encoders
+- *"stop"* — interrupts a running generation
 
 ---
 
 ## 🛠️ Tools
 
-| Tool | What it answers |
+Your agent picks these on its own; the list is here so you know what it can do.
+
+| Tool | Purpose |
 |---|---|
-| `capabilities` | What this instance offers, and which metadata sources exist |
-| `model_profile` | What is loaded, how it behaves, and whether its modules are intact |
-| `prompt_dialect` | How this checkpoint expects to be prompted, with its quality tags |
-| `loras` | Which LoRAs match an intent, with trigger words and typical weights |
-| `lora_info` | Full detail for one LoRA, with a ready prompt fragment |
-| `models` | List, load or refresh checkpoints — switching architecture brings its VAE and text encoder along |
-| `module_check` | Whether the loaded VAE and text encoders match what the architecture needs |
-| `module_download` | Where a missing VAE or text encoder comes from, and fetches it once you approve |
-| `generate` | Generate from a written prompt — txt2img or img2img |
+| `capabilities` | What this instance offers and what the bridge could read |
+| `model_profile` | The loaded checkpoint: parameters, prompt style, module health |
+| `prompt_dialect` | How this model expects to be prompted, with its quality tags |
+| `loras` | Search your LoRAs by name, tag, trigger word or description |
+| `lora_info` | Everything about one LoRA, with a ready prompt fragment |
+| `models` | List, load or refresh checkpoints |
+| `module_check` | Whether the loaded VAE and text encoders suit the architecture |
+| `module_download` | Where a missing module comes from — fetches only if you approve |
+| `generate` | Generate from a written prompt, txt2img or img2img |
 | `progress` | Check, interrupt or skip the running job |
 
 ---
 
-## 🧠 How it decides
+## 🔧 Troubleshooting
 
-Each answer carries its provenance, and falls back honestly rather than guessing.
+**It says it cannot reach Forge**
+Confirm Forge is running with `--api` and that `http://127.0.0.1:7860/docs` lists `/sdapi/v1/` endpoints. If Forge is on another machine it also needs `--listen`, and a firewall may be in the way.
 
-**Sampling parameters** — the architecture preset is authoritative for sampler, scheduler and shift; history adjusts only step count and guidance, which is what an accelerator LoRA actually changes. A regime belongs to a *(checkpoint, accelerators)* pair: an unusually low step count on a plain checkpoint is a property of the turbo LoRA loaded beside it, not of the checkpoint, and the profile says so.
+**Results come back as base64 and flood the conversation**
+`FORGE_PATH_MAP` is missing or does not match. Compare the path Forge reports — visible in any generation's info — with the path you use to reach the same folder.
 
-**Why parameters are sent explicitly** — leaving a field out of an API request does not fall back to the loaded architecture's value; it falls back to the API model's own default. Forge declares `distilled_cfg_scale = 3.5` and feeds it straight into `set_shift()`, so an omitted field silently generates at the wrong shift.
+**It does not know my usual settings**
+It learns from your past images, which needs Forge to save generation parameters. In *Settings → Saving images*, keep **"Save text information about generation parameters as chunks to png files"** enabled, or turn on the `.txt` sidecar. With neither, your outputs carry no parameters and it falls back to architecture defaults.
 
-**Whether an architecture uses shift** — answered by observation, not a list. Forge writes `Shift` into infotext only for engines that consume it, so past generations settle it.
+**It keeps asking which lineage my SDXL checkpoint is**
+Pony, Illustrious, Animagine and stock SDXL are indistinguishable from the file — same tensors, same preset, different prompt vocabulary. Answer once; it is remembered per file and never asked again.
 
-**Prompt dialect** — cache → optional CivitAI lookup → your own past prompts → architecture → the shape of your LoRA library. When all of that comes up short, it returns `unknown` with the candidate lineages instead of guessing, and your answer is cached by file hash so the question is asked once.
+**Images look wrong after switching architecture**
+Ask for a module check. Forge remembers the last VAE and text encoder selected under each preset, so loading a checkpoint while another preset was active can leave the wrong ones attached. The check names what is missing and whether the right file is already installed.
 
-**Which VAE and text encoders to load** — the preset is the operating truth, since it is what Forge actually applies; the reference below only notices when a preset has drifted, and says so rather than overriding it. Requirements come from the [Forge wiki's Download Models page](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Download-Models), because the instance cannot answer it: `forge_additional_modules_<arch>` records the last selection made under a preset, so loading a checkpoint while another preset is active overwrites it. Requirements are name patterns, never exact filenames, since several legitimate builds serve the same role. Where the wiki names no VAE, that is reported rather than guessed.
+**A download was refused for lack of space**
+Deliberate — it checks free space before starting rather than failing several gigabytes in. Free some room, or pick a lighter build such as `fp8_scaled` instead of `bf16`.
 
-**Switching checkpoint** — Forge loads a model against whichever VAE and text encoder are currently selected, so changing architecture means changing preset and modules together, as the UI does. Which architecture a checkpoint belongs to is inferred from two independent signals and only acted on when they agree; otherwise it loads without touching the modules and says why, and you can state the preset outright.
+---
 
-**Metadata sources** — the safetensors header, `.json` sidecars, generation history and the `.txt` infotext sibling are each optional and each a fallback for the others. A clean install simply reports less, and is told what is missing.
+## 🎯 What it does for you
+
+- **Sampling parameters that fit the model.** Taken from your own past generations where available, and from your instance's settings otherwise — not from a table in this repo.
+- **The right prompt vocabulary.** Quality tags where they help, none where they hurt: adding `masterpiece, best quality` to a model trained on captions dilutes the prompt rather than improving it.
+- **Your LoRAs, searchable.** By name, tag, trigger word or description, with the weights you actually use. Nothing is added to a prompt without showing you.
+- **Honest uncertainty.** Where the evidence runs out it says so and asks. No silent guesses.
+- **Module sanity checks.** Notices when a preset has picked up the wrong VAE or text encoder, and points at the official download for anything missing.
+
+Notes on how each answer is derived live in the source, next to the code that derives it.
 
 ---
 
 ## 🗺️ Roadmap
 
-- **Video (Wan)** — Forge generates video through `batch_size` in multiples of `4n+1` and encodes with ffmpeg, but the API discards the resulting `video_path`. Collecting from disk is already how images come back, so this is mostly plumbing.
-- **EXIF metadata** — JPEG and WebP carry parameters in EXIF when `save_txt` is off; that configuration currently yields no history.
+- **Video (Wan)** — Forge generates video through frame counts in multiples of `4n+1` and encodes with ffmpeg, but the API discards the resulting path. Collecting from disk is already how images come back, so this is mostly plumbing.
+- **EXIF metadata** — JPEG and WebP store parameters in EXIF when the `.txt` sidecar is off; that combination currently yields no history.
 - **Authentication** — `FORGE_AUTH` is implemented but has not been exercised against a live `--api-auth` instance.
 
 ---
 
 ## 📄 Credits
 
-- **[Forge Neo](https://github.com/Haoming02/sd-webui-forge-classic/tree/neo)** by Haoming02 — the WebUI this bridges to
+- **[Forge Neo](https://github.com/Haoming02/sd-webui-forge-classic/tree/neo)** by Haoming02 — the WebUI this bridges to, and the [Download Models](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Download-Models) wiki behind the module reference
 - **Model authors** who publish real prompting guidance on their cards — the dialect table is built from those, not from guesswork
 - **[Model Context Protocol](https://modelcontextprotocol.io)** — the protocol and Python SDK
-- **[CivitAI](https://civitai.com)** — public by-hash endpoint used by the optional lineage lookup
+- **[CivitAI](https://civitai.com)** — public by-hash endpoint used by the optional lookup
 
 ---
 
