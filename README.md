@@ -59,7 +59,7 @@ The bridge answers those questions from **your** setup: your generation history,
 - Resolved from cache, an optional CivitAI lookup, your own past prompts, the architecture, or your LoRA library — reporting which
 
 ### 🎨 LoRA library ⭐
-- Search by name, title, tag, trigger word or description — **on demand**, so 300+ LoRAs cost nothing until they matter
+- Search by name, title, tag, trigger word or description — **on demand**, so a large library costs nothing until it matters
 - Trigger words from the safetensors header, sidecars, or your own generation history
 - Separates **accelerators** (turbo/distill/dmd2/lcm) from content LoRAs, because they change the sampling regime rather than the image
 
