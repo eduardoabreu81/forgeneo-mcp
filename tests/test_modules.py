@@ -21,12 +21,29 @@ def test_classifies_by_folder_not_by_name():
     assert classify("/models/Stable-diffusion/model.safetensors") is None
 
 
-def test_flux_vae_pattern_is_anchored():
-    # "ae" is the real filename and also sits inside every other "*vae*".
+def test_flux_vae_pattern_is_anchored_but_accepts_rebuilds():
+    # "ae" is the real filename and also sits inside every other "*vae*", so it
+    # anchors; "flux" anywhere is a strong enough signal for community rebuilds.
     flux_vae = ARCH_MODULES["flux"].requirements[0]
     assert flux_vae.matches("ae.safetensors") is True
+    assert flux_vae.matches("ultrafluxVAEImproved_v10.safetensors") is True
     assert flux_vae.matches("qwen_image_vae.safetensors") is False
     assert flux_vae.matches("custom_vae_v10.safetensors") is False
+
+
+def test_klein_covers_both_sizes():
+    # Flux.2-Klein 4B and 9B differ in both companions.
+    spec = requirements_for("klein")
+    vae, encoder = spec.requirements
+    assert vae.matches("ae.safetensors") and vae.matches("flux2-vae.safetensors")
+    assert encoder.matches("qwen_3_4b_bf16.safetensors")
+    assert encoder.matches("qwen_3_8b_fp8mixed.safetensors")
+
+
+def test_every_forge_preset_has_requirements():
+    from forgeneo_mcp.presets import ARCH_DEFAULTS
+
+    assert set(ARCH_DEFAULTS) <= set(ARCH_MODULES)
 
 
 def test_unclassifiable_module_is_not_accused():
@@ -42,7 +59,7 @@ def test_detects_a_foreign_text_encoder_left_behind():
     report = audit("anima", ["qwen_image_vae.safetensors", "qwen3vl_4b_fp8_scaled.safetensors"], AVAILABLE)
     assert report["unrecognised"]["modules"] == ["qwen3vl_4b_fp8_scaled.safetensors"]
     needs = [item["need"] for item in report["missing"]]
-    assert "Qwen3 0.6B base" in needs
+    assert "Qwen3 0.6B" in needs
     assert [item["loaded"] for item in report["satisfied"]] == ["qwen_image_vae.safetensors"]
 
 
@@ -69,19 +86,58 @@ def test_missing_module_with_nothing_installed_says_download():
 
 
 def test_unspecified_vae_is_reported_not_guessed():
+    # PiD is where the wiki declines to name one: "Model Dependent". The VAE is
+    # still required — only its identity is left to the checkpoint.
+    report = audit("pid", [], AVAILABLE)
+    assert "does not name which one" in report["vae"]["status"]
+    assert report["vae"]["installed_vaes"]
+
+
+def test_krea_vae_comes_from_the_merged_wiki_cell():
+    # A first pass read Krea's VAE as unspecified because the source table
+    # merges that cell across Qwen-Image, Anima and Krea2.
     report = audit("krea", ["qwen_image_vae.safetensors", "qwen3vl_4b_fp8_scaled.safetensors"], AVAILABLE)
-    assert "not specified" in report["vae"]["status"]
-    # A VAE cannot be called wrong when the reference names none.
-    assert "unrecognised" not in report
     assert report["missing"] == []
+    assert "vae" not in report
+    assert len(report["satisfied"]) == 2
 
 
-def test_self_contained_architectures_require_nothing():
+def test_self_contained_architectures_need_nothing_mandatory():
+    # SD1 and SDXL ship both the VAE and the text encoder inside the
+    # checkpoint. An external VAE is an upgrade, not a requirement — every
+    # model needs a VAE, but theirs is already in the file.
     for arch in ("sd", "xl"):
         spec = requirements_for(arch)
-        assert spec.requirements == ()
-        assert audit(arch, [], AVAILABLE)["missing"] == []
+        assert all(requirement.optional for requirement in spec.requirements)
+        report = audit(arch, [], AVAILABLE)
+        assert report["missing"] == []
+        assert report["optional_not_loaded"]
 
 
 def test_unknown_architecture_says_so():
     assert audit("nonexistent", [], AVAILABLE)["known"] is False
+
+
+def test_every_architecture_accounts_for_its_vae():
+    """A VAE is never optional in the sense of unnecessary — it is what turns
+    latents into pixels. Each architecture must either require an external one,
+    say the reference does not name it, or explain that it is built in."""
+    from forgeneo_mcp.modules import VAE
+
+    for arch, spec in ARCH_MODULES.items():
+        requires_vae = any(requirement.kind == VAE for requirement in spec.requirements)
+        assert requires_vae or spec.vae_unspecified, (
+            f"{arch} neither requires a VAE nor explains where its VAE comes from"
+        )
+
+
+def test_built_in_vae_is_explained_not_called_optional():
+    for arch in ("sd", "xl"):
+        note = ARCH_MODULES[arch].note
+        assert "inside the checkpoint" in note
+        assert "nothing external is required" in note
+
+
+def test_unspecified_vae_says_required_not_absent():
+    report = audit("pid", [], AVAILABLE)
+    assert report["vae"]["status"].startswith("required")
