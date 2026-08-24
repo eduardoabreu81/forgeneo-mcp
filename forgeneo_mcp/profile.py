@@ -177,6 +177,16 @@ def build_profile(client: ForgeClient, history: HistoryIndex) -> ModelProfile | 
     shift = live.get("dcfg")
     if shift is None and fallback:
         shift = fallback.shift
+    # Forge records Shift only for engines that consume it, so past generations
+    # settle whether this architecture uses the parameter. presets.py lists a
+    # shift for krea because the UI shows the field, but krea's engine inherits
+    # use_shift = False and discards it - recommending a value there is noise.
+    if regime is not None and regime.uses_shift is False and regime.samples >= MIN_CONFIDENT_SAMPLES:
+        shift = None
+        warnings.append(
+            "this architecture ignores shift / distilled CFG: no past generation with this "
+            "checkpoint recorded the parameter, so it is not worth setting"
+        )
     width = _as_int(live.get("width"))
     height = _as_int(live.get("height"))
 

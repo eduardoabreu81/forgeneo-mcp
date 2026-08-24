@@ -110,14 +110,48 @@ On a 362-LoRA collection the header alone supplied a base model for 87%, a title
 for 71% and training tags for 48%; sidecars raised tags and descriptions to 99%.
 A clean install keeps tier 1 and simply reports less.
 
+## Why parameters are sent explicitly
+
+Leaving a field out of an API request does not fall back to the loaded
+architecture's value — it falls back to the API model's own default, which knows
+nothing about the model in memory. `StableDiffusionProcessing` declares
+`distilled_cfg_scale = 3.5`, and Forge feeds that straight into `set_shift()`, so
+an omitted field silently generated at shift 3.5 while the `anima` preset asks
+for 3.0.
+
+So the bridge resolves every parameter that matters and sends it. The values come
+from the instance's own `<preset>_<mode>_*` options rather than from a table in
+this repo, which also avoids drift: the live instance reports `krea` shift as
+`1.15` where a copied table had `-1.15`.
+
+Whether an architecture uses shift at all is answered by observation, not by a
+list. Forge records `Shift` / `Distilled CFG Scale` in infotext only for engines
+that consume it, so past generations settle the question — `anima` records it,
+`krea` never does, matching `use_shift` in their diffusion engines.
+
 ## Notes
 
 - `models(action="load")` swaps the checkpoint for the whole instance, including
   anyone using the web UI at that moment.
-- Video (Wan) is not wired up: generation runs through `batch_size` in multiples
-  of `4n+1` and the API discards the resulting `video_path`. The code path is
-  mapped but untested — no video model was available.
 - Read-only by design. The server never writes to `models/` or `config.json`.
+- Results are file paths when the output folder is reachable, base64 otherwise.
+  A batch returned as base64 will flood an agent's context, so prefer configuring
+  `FORGE_PATH_MAP`.
+
+## Roadmap
+
+- **Video (Wan).** Forge generates video through `batch_size` in multiples of
+  `4n+1`, encodes it with ffmpeg, and stores the path in `Processed.video_path` —
+  which `/sdapi/v1/txt2img` then discards, returning only the frames as base64.
+  Collecting the file from disk is already how the bridge returns images, so the
+  work is mostly plumbing `frames` through `generate`. Untested: no video model
+  was installed.
+- **EXIF metadata.** JPEG and WebP outputs carry generation parameters in EXIF
+  when `save_txt` is off. The bridge reads the PNG text chunk and the `.txt`
+  sibling, so that configuration yields no history; `capabilities` reports it
+  through `files_without_metadata` rather than reading it.
+- **Authentication.** `FORGE_AUTH` is implemented but has only been exercised
+  against an instance without `--api-auth`.
 
 ## Development
 

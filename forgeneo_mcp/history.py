@@ -58,6 +58,11 @@ class Regime:
     sampler: str | None
     scheduler: str | None
     danbooru_ratio: float
+    # None when nothing was observed. Forge only records Shift / Distilled CFG
+    # Scale for engines that consume it, so its presence in past infotext is
+    # direct evidence of whether this architecture uses the parameter at all.
+    uses_shift: bool | None = None
+    shift: float | None = None
     common_loras: tuple[tuple[str, float], ...] = field(default_factory=tuple)
 
     def as_dict(self) -> dict:
@@ -70,6 +75,8 @@ class Regime:
             "sampler": self.sampler,
             "scheduler": self.scheduler,
             "danbooru_ratio": round(self.danbooru_ratio, 2),
+            "uses_shift": self.uses_shift,
+            "shift": self.shift,
             "common_loras": [{"name": n, "weight": w} for n, w in self.common_loras],
         }
 
@@ -272,6 +279,11 @@ def _summarise(key: str, accelerators: tuple[str, ...], entries: list) -> Regime
         (name, round(statistics.median(weights), 2))
         for name, weights in sorted(lora_weights.items(), key=lambda kv: -len(kv[1]))[:5]
     )
+    shifts = [
+        value
+        for value in (entry.get_float("Shift") or entry.get_float("Distilled CFG Scale") for entry in entries)
+        if value is not None
+    ]
     return Regime(
         checkpoint=checkpoint,
         accelerators=accelerators,
@@ -281,6 +293,8 @@ def _summarise(key: str, accelerators: tuple[str, ...], entries: list) -> Regime
         sampler=samplers.most_common(1)[0][0] if samplers else None,
         scheduler=schedulers.most_common(1)[0][0] if schedulers else None,
         danbooru_ratio=danbooru / len(entries) if entries else 0.0,
+        uses_shift=bool(shifts) if entries else None,
+        shift=round(statistics.median(shifts), 2) if shifts else None,
         common_loras=common,
     )
 
