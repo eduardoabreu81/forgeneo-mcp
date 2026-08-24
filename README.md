@@ -179,6 +179,7 @@ Without `FORGE_PATH_MAP` the bridge still works — it just returns base64 rathe
 | `loras` | Which LoRAs match an intent, with trigger words and typical weights |
 | `lora_info` | Full detail for one LoRA, with a ready prompt fragment |
 | `models` | List, load or refresh checkpoints — switching architecture brings its VAE and text encoder along |
+| `module_check` | Whether the loaded VAE and text encoders match what the architecture needs |
 | `generate` | Generate from a written prompt — txt2img or img2img |
 | `progress` | Check, interrupt or skip the running job |
 
@@ -195,6 +196,8 @@ Each answer carries its provenance, and falls back honestly rather than guessing
 **Whether an architecture uses shift** — answered by observation, not a list. Forge writes `Shift` into infotext only for engines that consume it, so past generations settle it.
 
 **Prompt dialect** — cache → optional CivitAI lookup → your own past prompts → architecture → the shape of your LoRA library. When all of that comes up short, it returns `unknown` with the candidate lineages instead of guessing, and your answer is cached by file hash so the question is asked once.
+
+**Which VAE and text encoders an architecture needs** — from the [Forge wiki's Download Models page](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Download-Models), because the instance cannot answer it: `forge_additional_modules_<arch>` records the last selection made under a preset, so loading a checkpoint while another preset is active overwrites it. Requirements are name patterns, never exact filenames, since several legitimate builds serve the same role. Where the wiki names no VAE, that is reported rather than guessed.
 
 **Switching checkpoint** — Forge loads a model against whichever VAE and text encoder are currently selected, so changing architecture means changing preset and modules together, as the UI does. Which architecture a checkpoint belongs to is inferred from two independent signals and only acted on when they agree; otherwise it loads without touching the modules and says why, and you can state the preset outright.
 

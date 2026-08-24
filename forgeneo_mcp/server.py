@@ -20,7 +20,7 @@ try:  # SDK 2.x renamed FastMCP to MCPServer; both expose the same decorators
 except ImportError:  # pragma: no cover - depends on installed SDK
     from mcp.server.fastmcp import FastMCP as _ServerClass
 
-from . import dialects, identity
+from . import dialects, identity, modules
 from .capabilities import probe
 from .client import ForgeClient
 from .config import Config
@@ -190,6 +190,41 @@ def models(action: str = "list", name: str = "", preset: str = "", query: str = 
         "returned": len(filtered[:limit]),
         "results": filtered[: max(1, min(int(limit), 100))],
     }
+
+
+@mcp.tool()
+def module_check(preset: str = "") -> dict:
+    """Check the VAE and text encoders loaded for an architecture against what
+    it actually needs, and list installed files that could fill any gap.
+
+    Defaults to the active preset. Worth calling after switching architecture or
+    when output looks wrong for no obvious reason: Forge records the last
+    selection made under a preset, so loading a checkpoint while another preset
+    was active can leave the wrong modules attached. Where the reference does
+    not state a VAE, it says so instead of guessing — a wrong VAE degrades
+    output without raising an error."""
+    options = _client.options()
+    if not options.ok:
+        return {"ok": False, "error": options.error}
+
+    data = options.value or {}
+    arch = (preset or data.get("forge_preset") or "").strip()
+    selected = data.get(f"forge_additional_modules_{arch}") or []
+
+    listing = _client.modules()
+    if not listing.ok:
+        return {"ok": False, "error": listing.error}
+
+    report = modules.audit(arch, list(selected), list(listing.value or []))
+    if not report.get("known"):
+        return {
+            "ok": True,
+            "architecture": arch,
+            "known": False,
+            "detail": "no module requirements recorded for this architecture",
+            "currently_selected": [str(name).replace(chr(92), "/").split("/")[-1] for name in selected],
+        }
+    return {"ok": True, **report}
 
 
 @mcp.tool()
