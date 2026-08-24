@@ -79,3 +79,33 @@ def test_declared_base_outranks_architecture():
     result = resolve(identifier="x", architecture="xl", declared_base="Pony")
     assert result.dialect is dialects.PONY
     assert result.confidence == "high"
+
+
+def test_anima_quality_prefix_matches_official_card():
+    # CircleStone Labs recommends "masterpiece, best quality, score_7, safe"
+    assert dialects.ANIMA.quality_prefix == ("masterpiece", "best quality", "score_7", "safe")
+    assert "chromatic aberration" in dialects.ANIMA.negative_baseline
+    assert "score_1" in dialects.ANIMA.negative_baseline
+
+
+def test_anima_knows_it_cannot_do_realism():
+    assert "photorealism" in dialects.ANIMA.avoid
+
+
+def test_anima_tag_style_prefers_spaces():
+    assert "spaces instead of underscores" in dialects.ANIMA.tag_style
+    assert "@" in dialects.ANIMA.artist_syntax
+
+
+def test_tagged_detection_survives_space_separated_tags():
+    # Anima writes "long hair", not "long_hair" - underscore counting misses it.
+    prompt = "masterpiece, best quality, 1girl, solo, long hair, blue eyes, school uniform"
+    assert dialects._looks_tagged(prompt) is True
+
+
+def test_prose_is_not_mistaken_for_tags():
+    prompt = (
+        "a photograph of a weathered fisherman standing on a harbour dock at first light, "
+        "shot on 85mm, natural overcast light"
+    )
+    assert dialects._looks_tagged(prompt) is False

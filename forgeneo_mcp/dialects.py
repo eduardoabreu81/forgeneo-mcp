@@ -26,6 +26,15 @@ class Dialect:
     negative_baseline: tuple[str, ...] = ()
     structure: str = ""
     notes: str = ""
+    # Tag spelling differs between lineages and is easy to get wrong: Anima's
+    # documentation asks for spaces, and reserves underscores for score tags.
+    tag_style: str = ""
+    artist_syntax: str = ""
+    weighting: str = ""
+    # What the model is not for. Steers the agent to a different checkpoint
+    # rather than fighting one that cannot do the job.
+    avoid: str = ""
+    variants: tuple[str, ...] = field(default_factory=tuple)
     # Architectures where this dialect is the unambiguous default.
     architectures: tuple[str, ...] = field(default_factory=tuple)
 
@@ -36,7 +45,7 @@ class Dialect:
         return ", ".join(self.negative_baseline)
 
     def as_dict(self) -> dict:
-        return {
+        payload = {
             "dialect": self.key,
             "label": self.label,
             "uses_tags": self.uses_tags,
@@ -45,6 +54,13 @@ class Dialect:
             "structure": self.structure,
             "notes": self.notes,
         }
+        for name in ("tag_style", "artist_syntax", "weighting", "avoid"):
+            value = getattr(self, name)
+            if value:
+                payload[name] = value
+        if self.variants:
+            payload["variants"] = list(self.variants)
+        return payload
 
 
 PONY = Dialect(
@@ -71,9 +87,11 @@ ILLUSTRIOUS = Dialect(
         "signature", "watermark", "username",
     ),
     structure="quality tags first, then subject count (1girl/1boy), character, series, then booru tags",
+    tag_style="lowercase Danbooru vocabulary, comma separated, spaces rather than underscores",
+    artist_syntax="artist tags by name, weighted when the style needs reinforcing: '(artist name:1.4)'",
     notes=(
-        "Danbooru vocabulary with underscores kept as trained (long_hair, school_uniform). "
-        "NoobAI variants also respond to year_ tags such as year_2023 to steer era."
+        "Danbooru vocabulary. NoobAI variants also respond to year tags such as 'year 2023' to "
+        "steer era. Quality tags matter here: dropping them visibly degrades output."
     ),
 )
 
@@ -91,13 +109,48 @@ ANIMA = Dialect(
     key="anima",
     label="Anima (hybrid)",
     uses_tags=True,
-    quality_prefix=("masterpiece", "best quality"),
-    negative_baseline=("worst quality", "low quality", "blurry"),
-    structure="booru tags and natural phrases mix freely in the same prompt",
+    # Values from CircleStone Labs' own model card, not inferred.
+    quality_prefix=("masterpiece", "best quality", "score_7", "safe"),
+    negative_baseline=(
+        "worst quality", "low quality", "score_1", "score_2", "score_3",
+        "artist name", "blurry", "jpeg artifacts", "chromatic aberration",
+    ),
+    structure=(
+        "quality / meta / year / safety tags, then 1girl-1boy-1other, character, series, "
+        "artist, then general tags. Order within each group is free."
+    ),
+    tag_style=(
+        "lowercase, spaces instead of underscores ('long hair', not 'long_hair'). Score tags are "
+        "the only ones that keep an underscore. Prefer the Gelbooru spelling where it differs "
+        "from Danbooru."
+    ),
+    artist_syntax=(
+        "prefix artists with @ ('@big chungus') - without the @ the effect is very weak, and "
+        "artist influence dilutes in long prompts, so boost it: '(@artist name:1.5)'"
+    ),
+    weighting="emphasis works but needs higher weights than SDXL: '(chibi:2)'",
+    avoid=(
+        "photorealism - this is an illustration model and does not do realism well by design. "
+        "Long text rendering is also weak: single words usually work, phrases often do not."
+    ),
     notes=(
-        "Accepts both vocabularies at once, so describe scene and lighting in prose while "
-        "keeping booru tags for subject and pose. With a distilled/turbo LoRA loaded, drop "
-        "most quality tags - the distillation bakes in a negative prompt and they add little."
+        "Trained on Danbooru-style tags, natural-language captions, and mixtures of both, so tags "
+        "and prose can be interleaved in any order. Two quality systems are accepted and can be "
+        "combined: human scores (masterpiece / best quality / good quality / normal quality / "
+        "low quality / worst quality) and PonyV7 aesthetic scores (score_9 down to score_1). "
+        "Also honours time tags (year 2025, newest / recent / mid / early / old), safety tags "
+        "(safe / sensitive / nsfw / explicit) and meta tags (highres, absurdres, official art). "
+        "Random tag dropout during training means not every relevant tag is required. Pure "
+        "natural language works but wants at least two sentences; very short prompts drift."
+    ),
+    variants=(
+        "Base: unrefined, maximum diversity and style adherence; plain default look without "
+        "artist or quality tags. Train LoRAs against this one.",
+        "Aesthetic: fine-tuned on curated data with quality tags stripped from captions. Quality "
+        "tags are unnecessary, and score_* tags in either prompt push it towards slop.",
+        "Turbo: distilled, CFG 1 at 8-12 steps, strong default style and higher stability but "
+        "less diversity. Artist tags respond weakly here - use a non-distilled version when "
+        "style adherence matters.",
     ),
     architectures=("anima",),
 )
@@ -207,8 +260,25 @@ def from_observed_prompts(prompts: list[str]) -> Dialect | None:
     return ANIMA  # mixed vocabulary in the same body of work
 
 
+BOORU_MARKERS = (
+    "masterpiece", "best quality", "score_", "absurdres", "highres",
+    "1girl", "1boy", "1other", "solo", "looking at viewer",
+)
+
+
 def _looks_tagged(prompt: str) -> bool:
+    """Whether a prompt reads as booru vocabulary rather than prose.
+
+    Underscores are a weak signal on their own: Anima asks for spaces and keeps
+    underscores only for score tags, so counting them misses tagged prompts
+    entirely. Subject-count and quality vocabulary is the reliable marker.
+    """
     lowered = prompt.lower()
-    if any(marker in lowered for marker in ("masterpiece", "best quality", "score_")):
+    if any(marker in lowered for marker in BOORU_MARKERS):
         return True
-    return lowered.count("_") >= 2 and lowered.count(",") >= 3
+    # Many short comma-separated fragments with no sentence structure.
+    fragments = [part.strip() for part in lowered.split(",") if part.strip()]
+    if len(fragments) < 4:
+        return False
+    short = sum(1 for fragment in fragments if len(fragment.split()) <= 3)
+    return short / len(fragments) >= 0.7
