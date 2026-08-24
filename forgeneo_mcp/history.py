@@ -30,8 +30,8 @@ def normalise_checkpoint(name: str) -> str:
     """Reduce a checkpoint reference to something two sources can agree on.
 
     /sdapi/v1/options reports a path with subfolder and extension
-    ("Anima\\phoenixAnima_v10.safetensors") while infotext records the bare
-    name ("phoenixAnima_v10"). Without this the history lookup never matches
+    ("Anima\\animeMix_v10.safetensors") while infotext records the bare
+    name ("animeMix_v10"). Without this the history lookup never matches
     and every profile silently falls back to preset defaults.
     """
     cleaned = (name or "").replace("\\", "/").split("/")[-1].strip()

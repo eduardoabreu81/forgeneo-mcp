@@ -14,6 +14,10 @@
 
 Lets Claude, or any agent that speaks MCP, drive your local Forge Neo — reading which checkpoint is loaded, the sampling parameters that actually work for it, the prompt dialect it expects, and your LoRA library, then generating from a prompt the agent wrote itself.
 
+Most of the work happens *before* the prompt is written. How many steps this checkpoint really wants, whether guidance belongs near 1 or well above it, whether to write booru tags or full sentences, which quality tags help rather than dilute, whether a turbo LoRA is carrying the low step count — none of it is exposed by the API, and none of it fails loudly when wrong. It just produces worse images.
+
+The bridge answers those questions from **your** setup: your generation history, your instance's own settings, your checkpoint's tags, your LoRA library. Where the evidence runs out it says so and asks, rather than applying numbers that were right on somebody else's machine.
+
 > [!Important]
 > Forge Neo must be started with `--api`. No extension, no custom node, no changes to your Forge installation — the bridge is read-only and talks to the REST API that Forge already exposes.
 
@@ -21,7 +25,6 @@ Lets Claude, or any agent that speaks MCP, drive your local Forge Neo — readin
 
 ## 📋 Table of Contents
 
-- [Why it exists](#-why-it-exists)
 - [Features](#-features)
 - [Installation](#-installation)
 - [Configuration](#-configuration)
@@ -29,18 +32,6 @@ Lets Claude, or any agent that speaks MCP, drive your local Forge Neo — readin
 - [How it decides](#-how-it-decides)
 - [Roadmap](#-roadmap)
 - [Credits](#-credits)
-
----
-
-## 🎯 Why it exists
-
-Wrapping `/sdapi/v1/txt2img` in a tool takes an afternoon. The hard part is everything the agent needs to know *before* writing the prompt.
-
-A turbo Anima checkpoint wants 10 steps at CFG 1.5 with booru tags. A Krea 2 wants 8 steps at CFG 1.0 and full sentences — quality tags actively hurt it. An Illustrious needs `masterpiece, best quality` or it visibly degrades. None of this is in the API, and getting it wrong never fails loudly; it just produces worse images.
-
-This bridge works it out from the running instance, and says how it knows.
-
-> Every number the agent receives is measured in **your** environment — your history, your instance's options, your checkpoint's tags. Nothing is a statistic borrowed from someone else's install.
 
 ---
 
@@ -60,6 +51,7 @@ This bridge works it out from the running instance, and says how it knows.
 - **Turbo detection as a tri-state** with evidence — `unknown` is a real answer, not a silent `false`
 - Validates that the preset's VAE and text encoder files actually exist
 - Flags whether you habitually work with accelerator LoRAs
+- **Suggests rather than dictates** — quality, size, steps and CFG come from your setup when it can tell, and are put to you as a question when it cannot ⭐
 
 ### 🗣️ Prompt dialects ⭐
 - Per-lineage **quality tags**: Pony's score ladder, Illustrious booru tags, Animagine's ordered template, Anima's hybrid vocabulary — and prose models that must get **no tags at all**
@@ -126,7 +118,7 @@ Start Forge with `--listen --api`, point `FORGE_URL` at it, and map its paths so
 ```bash
 claude mcp add forgeneo \
   -e FORGE_URL=http://gpu-box:7860 \
-  -e FORGE_PATH_MAP='I:/sd-webui-forge-neo=//gpu-box/I/sd-webui-forge-neo' \
+  -e FORGE_PATH_MAP='D:/forge-neo=//gpu-box/share/forge-neo' \
   -- forgeneo-mcp
 ```
 
@@ -175,7 +167,7 @@ Without `FORGE_PATH_MAP` the bridge still works — it just returns base64 rathe
 
 Each answer carries its provenance, and falls back honestly rather than guessing.
 
-**Sampling parameters** — the architecture preset is authoritative for sampler, scheduler and shift; history adjusts only step count and guidance, which is what an accelerator LoRA actually changes. A regime belongs to a *(checkpoint, accelerators)* pair: ten steps on a base model is a property of the turbo LoRA loaded beside it, and the profile says so.
+**Sampling parameters** — the architecture preset is authoritative for sampler, scheduler and shift; history adjusts only step count and guidance, which is what an accelerator LoRA actually changes. A regime belongs to a *(checkpoint, accelerators)* pair: an unusually low step count on a plain checkpoint is a property of the turbo LoRA loaded beside it, not of the checkpoint, and the profile says so.
 
 **Why parameters are sent explicitly** — leaving a field out of an API request does not fall back to the loaded architecture's value; it falls back to the API model's own default. Forge declares `distilled_cfg_scale = 3.5` and feeds it straight into `set_shift()`, so an omitted field silently generates at the wrong shift.
 

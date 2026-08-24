@@ -37,14 +37,14 @@ def test_habit_is_unknown_without_history():
 def test_habit_reports_a_dominant_accelerator():
     index = _index(
         {
-            ("Turbo-ANIMA-v2.9",): [_entry(10, 1.5, lora="Turbo-ANIMA-v2.9")] * 9,
+            ("turbo-accel-v2",): [_entry(10, 1.5, lora="turbo-accel-v2")] * 9,
             (): [_entry(32, 4.0)],
         }
     )
     habit = index.accelerator_habit()
     assert habit["known"] is True
     assert habit["rate"] == 0.9
-    assert habit["common"][0]["name"] == "Turbo-ANIMA-v2.9"
+    assert habit["common"][0]["name"] == "turbo-accel-v2"
     assert habit["common"][0]["typical_weight"] == 1.0
 
 

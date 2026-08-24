@@ -26,20 +26,20 @@ def test_distilled_architecture_is_not_reported_as_checkpoint_turbo():
 
 
 def test_name_hint_gives_medium_confidence_without_history():
-    result = assess_turbo("magnanima_v10Turbo", (), ANIMA, observed_steps=None, samples=0)
+    result = assess_turbo("animeMix_v10Turbo", (), ANIMA, observed_steps=None, samples=0)
     assert result.state == "yes"
     assert result.confidence == "medium"
 
 
 def test_accelerator_in_use_is_high_confidence():
-    result = assess_turbo("plainName", ("anima-turbo-lora-v0.2",), ANIMA, 32.0, 0)
+    result = assess_turbo("plainName", ("turbo-accel-lora-v1",), ANIMA, 32.0, 0)
     assert result.state == "yes"
     assert result.confidence == "high"
 
 
 def test_history_far_below_preset_is_high_confidence():
     # 11 steps against a 32-step preset, seen repeatedly.
-    result = assess_turbo("astrallus_v5", (), ANIMA, observed_steps=11.0, samples=38)
+    result = assess_turbo("plainName", (), ANIMA, observed_steps=11.0, samples=38)
     assert result.state == "yes"
     assert result.confidence == "high"
 

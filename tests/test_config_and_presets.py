@@ -32,7 +32,7 @@ def test_accelerator_detection_ignores_substring_false_positives():
 
 def test_accelerator_detection_matches_exact_tags():
     assert looks_like_accelerator("whatever", ("assets", "distillation", "dmd2")) is True
-    assert looks_like_accelerator("anima-turbo-lora-v0.2", ()) is True
+    assert looks_like_accelerator("turbo-accel-lora-v1", ()) is True
 
 
 def test_arch_defaults_known_and_unknown():
@@ -50,4 +50,4 @@ def test_wan_is_the_only_video_arch():
 def test_lineage_detection_from_name():
     assert detect_lineage("ponyDiffusionV6XL.safetensors") == "pony"
     assert detect_lineage("waiIllustrious_v14") == "illustrious"
-    assert detect_lineage("magnanima_v10Turbo") is None
+    assert detect_lineage("animeMix_v10Turbo") is None

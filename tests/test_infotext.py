@@ -1,10 +1,10 @@
 from forgeneo_mcp.infotext import parse_infotext
 
 SAMPLE = (
-    "1girl, solo, <lora:Turbo-ANIMA-v2.9:1> <lora:my_style:0.75> masterpiece\n"
+    "1girl, solo, <lora:turbo-accel-v2:1> <lora:my_style:0.75> masterpiece\n"
     "Negative prompt: worst quality, blurry\n"
     "Steps: 11, Sampler: ER SDE, Schedule type: Beta, CFG scale: 1.5, Seed: 42, "
-    'Size: 1024x1024, Model hash: abc123, Model: magnanima_v10Turbo, Version: f2.0'
+    'Size: 1024x1024, Model hash: abc123, Model: animeMix_v10Turbo, Version: f2.0'
 )
 
 
@@ -20,12 +20,12 @@ def test_reads_sampling_parameters():
     assert info.cfg == 1.5
     assert info.sampler == "ER SDE"
     assert info.scheduler == "Beta"
-    assert info.checkpoint == "magnanima_v10Turbo"
+    assert info.checkpoint == "animeMix_v10Turbo"
 
 
 def test_extracts_loras_with_weights():
     info = parse_infotext(SAMPLE)
-    assert info.loras == (("Turbo-ANIMA-v2.9", 1.0), ("my_style", 0.75))
+    assert info.loras == (("turbo-accel-v2", 1.0), ("my_style", 0.75))
 
 
 def test_handles_prompt_without_negative():
