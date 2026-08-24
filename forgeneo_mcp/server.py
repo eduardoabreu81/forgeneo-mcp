@@ -7,7 +7,13 @@ prompt it is given and never injects a LoRA on its own — discovery lives in
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+# httpx logs one INFO line per request. Over stdio that lands in the client's
+# MCP log as noise, one entry per API call, so keep it to real problems.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 try:  # SDK 2.x renamed FastMCP to MCPServer; both expose the same decorators
     from mcp.server import MCPServer as _ServerClass
@@ -17,7 +23,7 @@ except ImportError:  # pragma: no cover - depends on installed SDK
 from .capabilities import probe
 from .client import ForgeClient
 from .config import Config
-from .generate import build_payload, resolve_output_dir, run_generation
+from .generate import build_payload, encode_init_image, resolve_output_dir, run_generation
 from .history import HistoryIndex
 from .loras import LoraIndex
 from .profile import build_profile
@@ -152,6 +158,8 @@ def generate(
     height: int = 1024,
     seed: int = -1,
     batch_size: int = 1,
+    init_image: str = "",
+    denoising_strength: float = 0.7,
     use_profile_defaults: bool = True,
 ) -> dict:
     """Generate an image from an already-written prompt.
@@ -159,9 +167,23 @@ def generate(
     The prompt is sent verbatim: include any `<lora:name:weight>` yourself. With
     use_profile_defaults on, missing sampling parameters are filled from what the
     loaded model actually used before, so leave them unset unless you mean to
-    override. Returns file paths when the output folder is readable."""
+    override. Returns file paths when the output folder is readable.
+
+    Pass `init_image` (a local file path) to run img2img instead, where
+    `denoising_strength` controls how far the result may drift from it: around
+    0.3 keeps the composition, 0.75 reinterprets it freely. Edit-style and video
+    models expect values close to 1.0."""
     if not prompt.strip():
         return {"ok": False, "error": "prompt is empty"}
+
+    mode = "img2img" if init_image else "txt2img"
+    extra: dict[str, Any] = {}
+    if init_image:
+        encoded, error = encode_init_image(init_image)
+        if error:
+            return {"ok": False, "error": error}
+        extra["init_images"] = [encoded]
+        extra["denoising_strength"] = max(0.0, min(float(denoising_strength), 1.0))
 
     resolved: dict[str, Any] = {
         "steps": steps,
@@ -196,11 +218,15 @@ def generate(
         height=height,
         seed=seed,
         batch_size=max(1, int(batch_size)),
+        extra=extra or None,
     )
 
-    output_dir = _ensure_output_dir()
-    result = run_generation(_client, payload, output_dir, mode="txt2img")
+    _ensure_output_dir()
+    options = _client.options()
+    output_dir = resolve_output_dir(_client, options.value or {}, mode=mode) if options.ok else None
+    result = run_generation(_client, payload, output_dir, mode=mode)
     response = result.as_dict()
+    response["mode"] = mode
     if applied_from_profile:
         response["defaults_applied"] = applied_from_profile
     return response

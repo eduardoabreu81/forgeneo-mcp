@@ -54,3 +54,42 @@ def test_normalise_preserves_unc_prefix():
 def test_trim_info_drops_noise():
     trimmed = _trim_info({"prompt": "x", "seed": 1, "irrelevant": "y" * 5000})
     assert trimmed == {"prompt": "x", "seed": 1}
+
+
+def test_usable_target_accepts_folder_not_created_yet(tmp_path):
+    from forgeneo_mcp.generate import _usable_target
+
+    # Forge creates output subfolders on first use of a mode; a missing
+    # img2img folder must not discard an already-finished generation.
+    assert _usable_target(str(tmp_path)) is True
+    assert _usable_target(str(tmp_path / "img2img-images")) is True
+    assert _usable_target(str(tmp_path / "missing" / "deeper")) is False
+
+
+def test_encode_init_image_rejects_bad_input(tmp_path):
+    from forgeneo_mcp.generate import encode_init_image
+
+    data, error = encode_init_image(str(tmp_path / "nope.png"))
+    assert data is None and "not found" in error
+
+    not_image = tmp_path / "script.py"
+    not_image.write_text("print()")
+    data, error = encode_init_image(str(not_image))
+    assert data is None and "not a recognised image" in error
+
+    empty = tmp_path / "empty.png"
+    empty.write_bytes(b"")
+    data, error = encode_init_image(str(empty))
+    assert data is None and "empty" in error
+
+
+def test_encode_init_image_returns_base64(tmp_path):
+    import base64
+
+    from forgeneo_mcp.generate import encode_init_image
+
+    path = tmp_path / "image.png"
+    path.write_bytes(b"binary-content")
+    data, error = encode_init_image(str(path))
+    assert error is None
+    assert base64.b64decode(data) == b"binary-content"

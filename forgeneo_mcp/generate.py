@@ -61,13 +61,28 @@ def resolve_output_dir(client: ForgeClient, options: dict, mode: str = "txt2img"
     normalised = outdir.replace("\\", "/")
     if _is_absolute(normalised):
         local = client.config.localise(normalised)
-        return local if local and os.path.isdir(local) else None
+        return local if local and _usable_target(local) else None
 
     root = _installation_root(client, options)
     if not root:
         return None
     candidate = os.path.join(root, *normalised.split("/"))
-    return candidate if os.path.isdir(candidate) else None
+    return candidate if _usable_target(candidate) else None
+
+
+def _usable_target(path: str) -> bool:
+    """Accept a folder Forge has not created yet.
+
+    Output subfolders appear the first time a mode is used: on a machine that
+    had only ever run txt2img, outdir_img2img_samples pointed at a directory
+    that did not exist, and requiring it up front discarded the result of a
+    generation that had already happened. An existing parent is enough to show
+    the path mapping is right.
+    """
+    if os.path.isdir(path):
+        return True
+    parent = os.path.dirname(path.rstrip("/" + chr(92)))
+    return bool(parent) and os.path.isdir(parent)
 
 
 def _is_absolute(path: str) -> bool:
@@ -92,6 +107,22 @@ def _installation_root(client: ForgeClient, options: dict) -> str | None:
         if local and os.path.isdir(local):
             return local
     return None
+
+
+def encode_init_image(path: str) -> tuple[str | None, str | None]:
+    """Read a local image into base64 for img2img. Returns (data, error)."""
+    if not os.path.isfile(path):
+        return None, f"init image not found: {path}"
+    if not path.lower().endswith(MEDIA_SUFFIXES):
+        return None, f"init image is not a recognised image file: {path}"
+    try:
+        with open(path, "rb") as handle:
+            blob = handle.read()
+    except OSError as exc:
+        return None, f"cannot read init image: {exc}"
+    if not blob:
+        return None, f"init image is empty: {path}"
+    return base64.b64encode(blob).decode("ascii"), None
 
 
 def build_payload(
