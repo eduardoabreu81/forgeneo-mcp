@@ -12,11 +12,11 @@
 
 </div>
 
-Lets Claude, or any agent that speaks MCP, drive your local Forge Neo — reading which checkpoint is loaded, the sampling parameters that actually work for it, the prompt dialect it expects, and your LoRA library, then generating from a prompt the agent wrote itself.
+Lets Claude, or any agent that speaks MCP, drive your local Forge Neo — reading which checkpoint is loaded, the sampling parameters that suit it, and the prompt dialect it expects, then generating from a prompt the agent wrote itself.
 
 Most of the work happens *before* the prompt is written. How many steps this checkpoint really wants, whether guidance belongs near 1 or well above it, whether to write booru tags or full sentences, which quality tags help rather than dilute, whether a turbo LoRA is carrying the low step count — none of it is exposed by the API, and none of it fails loudly when wrong. It just produces worse images.
 
-The bridge answers those questions from **your** setup: your generation history, your instance's own settings, your checkpoint's tags, your LoRA library. Where the evidence runs out it says so and asks, rather than applying numbers that were right on somebody else's machine.
+The bridge answers those questions from **your** setup — your instance's own settings, your checkpoint's metadata, and your past generations if you have any. Where the evidence runs out it says so and asks, rather than applying numbers that were right on somebody else's machine. A fresh install with an empty output folder works fine; it simply has less to go on, and says which pieces are missing.
 
 > [!Important]
 > Forge Neo must be started with `--api`. No extension, no custom node, no changes to your Forge installation — the bridge is read-only and talks to the REST API that Forge already exposes.
@@ -26,6 +26,8 @@ The bridge answers those questions from **your** setup: your generation history,
 ## 📋 Table of Contents
 
 - [Features](#-features)
+- [In practice](#-in-practice)
+- [Supported architectures](#-supported-architectures)
 - [Installation](#-installation)
 - [Configuration](#-configuration)
 - [Tools](#-tools)
@@ -47,16 +49,17 @@ The bridge answers those questions from **your** setup: your generation history,
 
 ### 🧭 Model profile ⭐
 - Which checkpoint and architecture preset are live, and the checkpoint's own tags
-- **Sampling regime measured from your own outputs**, keyed by checkpoint *and* accelerator LoRA
+- **Suggests rather than dictates** — size, steps, CFG and quality settings come from your setup where it can tell, and are put to you as a question where it cannot ⭐
+- **Sampling values taken from your own outputs** when you have them, and from the instance's settings when you do not
+- Where distilled or accelerator LoRAs are part of the workflow, keeps their effect separate from the checkpoint's own behaviour ⭐
 - **Turbo detection as a tri-state** with evidence — `unknown` is a real answer, not a silent `false`
 - Validates that the preset's VAE and text encoder files actually exist
-- Flags whether you habitually work with accelerator LoRAs
-- **Suggests rather than dictates** — quality, size, steps and CFG come from your setup when it can tell, and are put to you as a question when it cannot ⭐
 
 ### 🗣️ Prompt dialects ⭐
-- Per-lineage **quality tags**: Pony's score ladder, Illustrious booru tags, Animagine's ordered template, Anima's hybrid vocabulary — and prose models that must get **no tags at all**
+- **Quality tags per lineage** — a score ladder, booru quality tags, an ordered template, or none at all, depending on what the loaded model was trained on
 - Tag spelling, artist syntax, emphasis weighting, and what each model is *not* for
 - Resolved from cache, an optional CivitAI lookup, your own past prompts, the architecture, or your LoRA library — reporting which
+- Where a family covers several lineages, it asks once and remembers, instead of guessing
 
 ### 🎨 LoRA library ⭐
 - Search by name, title, tag, trigger word or description — **on demand**, so a large library costs nothing until it matters
@@ -67,6 +70,44 @@ The bridge answers those questions from **your** setup: your generation history,
 - Routes read from the live OpenAPI document, not a hardcoded list
 - Reports which metadata sources exist and degrades when they do not
 - Explains an empty history — including when `enable_pnginfo` and `save_txt` are both off
+
+---
+
+## 💬 In practice
+
+You ask for an image in your own words. Before writing anything, the agent checks what is loaded and how that model wants to be addressed:
+
+> **You** — *"a cover image for a post about winter hiking"*
+>
+> The agent reads the profile, finds the loaded model expects prose rather than tags and works at low guidance, writes the prompt that way, and generates. It never asks you for a step count, because the profile already answered that.
+
+> **You** — *"same scene, but in the style I use for thumbnails"*
+>
+> The agent searches your LoRAs for that style, picks up its trigger word and the weight you normally give it, and writes it into the prompt itself. Nothing is added behind your back — the LoRA appears in the prompt you can read.
+
+When something cannot be determined — most often which lineage an SDXL checkpoint came from — it asks once, and remembers the answer for that file.
+
+---
+
+## 🧩 Supported architectures
+
+The bridge reads whichever preset your instance reports, so it follows Forge Neo rather than carrying its own list of models. What it adds on top is the prompt dialect each family expects:
+
+| Forge preset | Family | Prompt dialect |
+|---|---|---|
+| `sd` | SD 1.5 lineage | comma-separated tags, emphasis syntax, substantial negative |
+| `xl` | SDXL lineage | **depends on the lineage** — Pony, Illustrious/NoobAI, Animagine and stock SDXL share tensors but not vocabulary, so this one is asked and cached |
+| `anima` | Anima | hybrid — booru tags and prose mix freely |
+| `flux` · `klein` | Flux.1 / Flux.2 | natural language, no quality tags |
+| `qwen` | Qwen-Image | natural language, no quality tags |
+| `krea` | Krea 2 | natural language, no quality tags |
+| `zit` | Z-Image | natural language, no quality tags |
+| `lumina` | Lumina-Image | natural language, no quality tags |
+| `ernie` · `pid` | Ernie-Image / PiD | natural language, no quality tags |
+| `wan` | Wan 2.2 | natural language describing motion — video is on the roadmap |
+
+> [!Note]
+> Adding a lineage means adding its quality tags, tag spelling and structure to one table — [`dialects.py`](forgeneo_mcp/dialects.py). Pull requests for lineages you use are welcome; the values should come from the model's own card rather than from one person's experience with it.
 
 ---
 
@@ -190,7 +231,7 @@ Each answer carries its provenance, and falls back honestly rather than guessing
 ## 📄 Credits
 
 - **[Forge Neo](https://github.com/Haoming02/sd-webui-forge-classic/tree/neo)** by Haoming02 — the WebUI this bridges to
-- **[Anima](https://huggingface.co/circlestone-labs)** by CircleStone Labs — model card that corrected the Anima dialect
+- **Model authors** who publish real prompting guidance on their cards — the dialect table is built from those, not from guesswork
 - **[Model Context Protocol](https://modelcontextprotocol.io)** — the protocol and Python SDK
 - **[CivitAI](https://civitai.com)** — public by-hash endpoint used by the optional lineage lookup
 
