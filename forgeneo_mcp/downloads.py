@@ -23,6 +23,7 @@ from .modules import TEXT_ENCODER, VAE
 
 HF_BLOB = "/blob/"
 HF_RESOLVE = "/resolve/"
+HF_TREE = "/tree/"
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,15 @@ class Download:
     url: str
     filename: str
     note: str = ""
+
+    @property
+    def is_directory(self) -> bool:
+        """Some wiki links point at a folder of builds rather than one file.
+
+        Those cannot be fetched automatically — the operator picks the build
+        that suits their hardware from the page.
+        """
+        return HF_TREE in self.url
 
     @property
     def direct_url(self) -> str:
@@ -46,11 +56,18 @@ class Download:
         payload = {
             "label": self.label,
             "kind": self.kind,
-            "filename": self.filename,
             "url": self.direct_url,
             "page": self.url,
             "target_folder": self.target_folder,
         }
+        if not self.is_directory:
+            payload["filename"] = self.filename
+        else:
+            payload["fetchable"] = False
+            payload["why"] = (
+                "this link is a folder of builds, not a single file. Open it, pick the build that "
+                f"suits your hardware, and save it into {self.target_folder}"
+            )
         if self.note:
             payload["note"] = self.note
         return payload
@@ -180,9 +197,14 @@ CATALOGUE: dict[str, tuple[Download, ...]] = {
     "krea": (
         *_QWEN_IMAGE_VAE,
         _hf(
-            "Qwen3-VL 4B", TEXT_ENCODER,
+            "Qwen3-VL 4B (bf16 / fp8_scaled)", TEXT_ENCODER,
+            "https://huggingface.co/Comfy-Org/Krea-2/tree/main/text_encoders",
+            "the build the wiki lists for Krea2; the page holds both bf16 and fp8_scaled",
+        ),
+        _hf(
+            "Qwen3 4B", TEXT_ENCODER,
             "https://huggingface.co/Comfy-Org/z_image_turbo/blob/main/split_files/text_encoders/qwen_3_4b.safetensors",
-            "the wiki links qwen3vl_4b under Krea2; confirm the exact build before fetching",
+            "also works here, and is a single file that can be fetched directly",
         ),
     ),
     "pid": (

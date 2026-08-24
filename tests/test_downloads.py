@@ -19,7 +19,11 @@ def test_entries_know_where_they_belong():
     for arch in downloads.CATALOGUE:
         for entry in downloads.for_architecture(arch):
             assert entry.target_folder in ("models/VAE", "models/text_encoder")
-            assert entry.filename.endswith(".safetensors")
+            if entry.is_directory:
+                # A folder link has no single file, so it advertises no filename.
+                assert "filename" not in entry.as_dict()
+            else:
+                assert entry.filename.endswith(".safetensors")
 
 
 def test_every_architecture_with_requirements_has_somewhere_to_get_them():
@@ -85,3 +89,35 @@ def test_partial_downloads_never_look_like_finished_files(tmp_path):
     result = fetcher.fetch("http://127.0.0.1:1/never.safetensors", str(tmp_path), "never.safetensors")
     assert result["ok"] is False
     assert list(tmp_path.iterdir()) == []
+
+
+def test_directory_links_are_marked_unfetchable():
+    # Some wiki entries point at a folder of builds; those cannot be downloaded
+    # automatically because there is no single file to take.
+    krea = downloads.for_architecture("krea")
+    folder_entry = next(entry for entry in krea if entry.is_directory)
+    assert "/tree/" in folder_entry.url
+    payload = folder_entry.as_dict()
+    assert payload["fetchable"] is False
+    assert "pick the build" in payload["why"]
+
+
+def test_krea_offers_both_valid_encoders():
+    # Both the Krea-2 page build and the Z-Image single file work here.
+    labels = [entry.label for entry in downloads.for_architecture("krea")]
+    assert any("Qwen3-VL 4B" in label for label in labels)
+    assert any(label == "Qwen3 4B" for label in labels)
+
+
+def test_at_least_one_encoder_per_architecture_is_directly_fetchable():
+    from forgeneo_mcp.modules import ARCH_MODULES, TEXT_ENCODER
+
+    for arch, spec in ARCH_MODULES.items():
+        if not any(requirement.kind == TEXT_ENCODER for requirement in spec.requirements):
+            continue
+        entries = [
+            entry
+            for entry in downloads.for_architecture(arch)
+            if entry.kind == TEXT_ENCODER and not entry.is_directory
+        ]
+        assert entries, f"{arch} has no directly fetchable text encoder"

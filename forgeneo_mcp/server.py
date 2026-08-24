@@ -295,6 +295,18 @@ def module_download(preset: str = "", label: str = "", confirm: bool = False) ->
             ),
         }
 
+    if chosen.is_directory:
+        return {
+            "ok": True,
+            "fetchable": False,
+            "entry": chosen.as_dict(),
+            "detail": (
+                "this entry links a folder of builds rather than one file, so it cannot be "
+                "fetched automatically. Open the page, choose the build that suits the hardware, "
+                f"and save it into {chosen.target_folder}"
+            ),
+        }
+
     folder = os.path.join(root, *chosen.target_folder.split("/"))
     intent = fetcher.plan(chosen.direct_url, folder, chosen.filename)
 
