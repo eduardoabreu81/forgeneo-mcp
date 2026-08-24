@@ -75,21 +75,15 @@ _QWEN_IMAGE_VAE = ModuleRequirement(
 ARCH_MODULES: dict[str, ArchModules] = {
     "sd": ArchModules(
         requirements=(
-            ModuleRequirement(VAE, "SD1 VAE (vae-ft-mse-840000)", ("vae-ft-mse", "vae_ft_mse"), optional=True),
+            ModuleRequirement(VAE, "SD1 VAE (vae-ft-mse-840000)", ("vae-ft-mse", "vae_ft_mse")),
         ),
-        note=(
-            "both the VAE and the text encoder ship inside the checkpoint, so nothing external "
-            "is required. Loading vae-ft-mse-840000 replaces the built-in VAE with a better one"
-        ),
+        note="the reference lists a VAE and marks the text encoder as N/A",
     ),
     "xl": ArchModules(
         requirements=(
-            ModuleRequirement(VAE, "SDXL VAE (sdxl-vae-fp16-fix)", ("sdxl-vae", "sdxl_vae"), optional=True),
+            ModuleRequirement(VAE, "SDXL VAE (sdxl-vae-fp16-fix)", ("sdxl-vae", "sdxl_vae")),
         ),
-        note=(
-            "both the VAE and the text encoder ship inside the checkpoint, so nothing external "
-            "is required. sdxl-vae-fp16-fix replaces the built-in VAE and avoids fp16 artefacts"
-        ),
+        note="the reference lists a VAE and marks the text encoder as N/A",
     ),
     "lumina": ArchModules(
         requirements=(

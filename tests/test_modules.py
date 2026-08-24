@@ -102,16 +102,17 @@ def test_krea_vae_comes_from_the_merged_wiki_cell():
     assert len(report["satisfied"]) == 2
 
 
-def test_self_contained_architectures_need_nothing_mandatory():
-    # SD1 and SDXL ship both the VAE and the text encoder inside the
-    # checkpoint. An external VAE is an upgrade, not a requirement — every
-    # model needs a VAE, but theirs is already in the file.
-    for arch in ("sd", "xl"):
+def test_sd_and_sdxl_follow_the_reference():
+    """The source table lists a VAE for SD1 and SDXL and marks only their text
+    encoder N/A. An earlier version called that VAE optional and described it as
+    an upgrade — neither claim is in the reference."""
+    for arch, pattern in (("sd", "vae-ft-mse"), ("xl", "sdxl-vae")):
         spec = requirements_for(arch)
-        assert all(requirement.optional for requirement in spec.requirements)
-        report = audit(arch, [], AVAILABLE)
-        assert report["missing"] == []
-        assert report["optional_not_loaded"]
+        assert len(spec.requirements) == 1
+        requirement = spec.requirements[0]
+        assert requirement.kind == "vae"
+        assert requirement.optional is False
+        assert requirement.matches(f"{pattern}-something.safetensors")
 
 
 def test_unknown_architecture_says_so():
@@ -119,9 +120,9 @@ def test_unknown_architecture_says_so():
 
 
 def test_every_architecture_accounts_for_its_vae():
-    """A VAE is never optional in the sense of unnecessary — it is what turns
-    latents into pixels. Each architecture must either require an external one,
-    say the reference does not name it, or explain that it is built in."""
+    """A VAE is what turns latents into pixels, so every architecture needs one.
+    Each entry must either name the VAE the reference gives it, or record that
+    the reference leaves it to the checkpoint."""
     from forgeneo_mcp.modules import VAE
 
     for arch, spec in ARCH_MODULES.items():
@@ -131,11 +132,12 @@ def test_every_architecture_accounts_for_its_vae():
         )
 
 
-def test_built_in_vae_is_explained_not_called_optional():
+def test_notes_do_not_add_claims_the_reference_lacks():
+    # "optional", "upgrade" and "built in" were all inferred, not sourced.
     for arch in ("sd", "xl"):
-        note = ARCH_MODULES[arch].note
-        assert "inside the checkpoint" in note
-        assert "nothing external is required" in note
+        note = ARCH_MODULES[arch].note.lower()
+        for invented in ("optional", "upgrade", "built-in", "baked"):
+            assert invented not in note
 
 
 def test_unspecified_vae_says_required_not_absent():
