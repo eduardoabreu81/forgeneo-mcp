@@ -94,6 +94,7 @@ class HistoryIndex:
         self._scanned = 0
         self._files_without_metadata = 0
         self._sources: Counter[str] = Counter()
+        self._prompts_by_checkpoint: dict[str, list[str]] = defaultdict(list)
         self._built = False
 
     @property
@@ -114,6 +115,7 @@ class HistoryIndex:
         self._scanned = 0
         self._files_without_metadata = 0
         self._sources.clear()
+        self._prompts_by_checkpoint.clear()
         self._regimes.clear()
         self._by_checkpoint.clear()
         self._lora_usage.clear()
@@ -158,7 +160,10 @@ class HistoryIndex:
             accelerators = tuple(
                 sorted(name for name, _ in info.loras if looks_like_accelerator(name))
             )
-            buckets[(normalise_checkpoint(checkpoint), accelerators)].append(info)
+            key = normalise_checkpoint(checkpoint)
+            buckets[(key, accelerators)].append(info)
+            if info.prompt and len(self._prompts_by_checkpoint[key]) < 60:
+                self._prompts_by_checkpoint[key].append(info.prompt)
             for name, weight in info.loras:
                 self._lora_usage[name] += 1
                 self._lora_weights[name].append(weight)
@@ -210,6 +215,16 @@ class HistoryIndex:
         self.build()
         candidates = self._by_checkpoint.get(normalise_checkpoint(checkpoint), [])
         return sorted(candidates, key=lambda regime: -regime.samples)
+
+    def prompts_for(self, checkpoint: str, limit: int = 40) -> list[str]:
+        """Positive prompts previously used with a checkpoint.
+
+        Feeds dialect inference: the vocabulary an operator actually reached for
+        with a model is stronger evidence than anything the file declares.
+        """
+        self.build()
+        key = normalise_checkpoint(checkpoint)
+        return list(self._prompts_by_checkpoint.get(key, [])[:limit])
 
     def lora_usage(self, name: str) -> tuple[int, float | None]:
         """How many times a LoRA was used and its typical weight."""

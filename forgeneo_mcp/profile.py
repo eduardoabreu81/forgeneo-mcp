@@ -7,9 +7,11 @@ live instance plus observed usage.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 
+from . import civitai, identity
 from .client import ForgeClient
 from .history import HistoryIndex
 from .presets import LINEAGE_PROMPT_STYLE, PROMPT_STYLE, defaults_for, detect_lineage
@@ -132,6 +134,81 @@ class ModelProfile:
             "samples_observed": self.samples_observed,
             "warnings": list(self.warnings),
         }
+
+
+def resolve_dialect(
+    client: ForgeClient,
+    history: HistoryIndex,
+    checkpoint: str | None,
+    preset: str | None,
+    lora_entries: list | None = None,
+) -> identity.DialectResolution:
+    """Work out how this checkpoint expects to be prompted.
+
+    Tries, in order: a previously cached answer, an optional CivitAI lookup by
+    hash, the prompts actually used with this checkpoint, what the architecture
+    implies, and finally the shape of the installed LoRA library.
+    """
+    sha, declared = _checkpoint_identity(client, checkpoint)
+    identifier = sha or (checkpoint or "")
+
+    if not declared and sha and civitai.enabled():
+        found = civitai.lookup(sha)
+        if found.ok:
+            declared = found.base_model
+
+    prompts = [regime_prompt for regime_prompt in history.prompts_for(checkpoint or "")]
+    return identity.resolve(
+        identifier=identifier,
+        architecture=preset,
+        declared_base=declared,
+        observed_prompts=prompts,
+        lora_entries=lora_entries,
+    )
+
+
+def _checkpoint_identity(client: ForgeClient, checkpoint: str | None) -> tuple[str | None, str | None]:
+    """The loaded checkpoint's hash, and any base model it declares locally."""
+    if not checkpoint:
+        return None, None
+    listing = client.checkpoints()
+    if not listing.ok:
+        return None, None
+
+    target = os.path.basename(str(checkpoint).replace("\\", "/")).lower()
+    for item in listing.value or []:
+        title = str(item.get("title") or "")
+        filename = os.path.basename(str(item.get("filename") or "").replace("\\", "/"))
+        if target not in title.lower() and target != filename.lower():
+            continue
+        sha = item.get("sha256") or item.get("hash")
+        declared = _sidecar_base_model(client, item.get("filename"))
+        return (str(sha) if sha else None), declared
+    return None, None
+
+
+def _sidecar_base_model(client: ForgeClient, remote_path) -> str | None:
+    """Read a declared baseModel from a sidecar, when one happens to exist."""
+    if not remote_path:
+        return None
+    local = client.config.localise(str(remote_path))
+    if not local:
+        return None
+    stem = os.path.splitext(local)[0]
+    for suffix in (".json", ".api_info.json"):
+        candidate = stem + suffix
+        if not os.path.isfile(candidate):
+            continue
+        try:
+            with open(candidate, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict):
+            value = data.get("baseModel") or data.get("sd version")
+            if value:
+                return str(value)
+    return None
 
 
 def build_profile(client: ForgeClient, history: HistoryIndex) -> ModelProfile | str:

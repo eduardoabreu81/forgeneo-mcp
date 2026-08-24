@@ -20,13 +20,14 @@ try:  # SDK 2.x renamed FastMCP to MCPServer; both expose the same decorators
 except ImportError:  # pragma: no cover - depends on installed SDK
     from mcp.server.fastmcp import FastMCP as _ServerClass
 
+from . import dialects, identity
 from .capabilities import probe
 from .client import ForgeClient
 from .config import Config
 from .generate import build_payload, encode_init_image, resolve_output_dir, run_generation
 from .history import HistoryIndex
 from .loras import LoraIndex
-from .profile import build_profile
+from .profile import _checkpoint_identity, build_profile, resolve_dialect
 
 mcp = _ServerClass("forgeneo")
 
@@ -70,6 +71,50 @@ def model_profile() -> dict:
     if isinstance(result, str):
         return {"ok": False, "error": result}
     return {"ok": True, **result.as_dict()}
+
+
+@mcp.tool()
+def prompt_dialect(confirm: str = "") -> dict:
+    """How the loaded checkpoint expects to be prompted, with its quality tags.
+
+    Returns the dialect (pony / illustrious / animagine / anima / sd15 /
+    sdxl_base / natural), the quality prefix and negative baseline it needs, and
+    where that conclusion came from. Quality tags are not decoration: an
+    Illustrious prompt without them degrades, and a Flux prompt with them
+    degrades too.
+
+    When the dialect comes back unknown — `xl` covers Pony, Illustrious and
+    stock SDXL, which share tensors and preset — ask the operator, then call
+    again with `confirm` set to their answer. It is cached by file hash and
+    never asked again."""
+    _ensure_output_dir()
+    options = _client.options()
+    if not options.ok:
+        return {"ok": False, "error": options.error}
+
+    data = options.value or {}
+    checkpoint = data.get("sd_model_checkpoint")
+    preset = data.get("forge_preset")
+
+    if confirm:
+        key = confirm.strip().lower()
+        if key not in dialects.BY_KEY:
+            return {
+                "ok": False,
+                "error": f"unknown dialect '{confirm}'",
+                "choices": sorted(dialects.BY_KEY),
+            }
+        sha, _ = _checkpoint_identity(_client, checkpoint)
+        stored = identity.remember(sha or (checkpoint or ""), key)
+        return {
+            "ok": True,
+            "confirmed": key,
+            "cached": stored,
+            **dialects.BY_KEY[key].as_dict(),
+        }
+
+    resolution = resolve_dialect(_client, _history, checkpoint, preset, _loras.all())
+    return {"ok": True, "checkpoint": checkpoint, "architecture": preset, **resolution.as_dict()}
 
 
 @mcp.tool()
