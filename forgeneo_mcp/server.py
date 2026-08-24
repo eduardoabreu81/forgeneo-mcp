@@ -27,7 +27,7 @@ from .config import Config
 from .generate import build_payload, encode_init_image, resolve_output_dir, run_generation
 from .history import HistoryIndex
 from .loras import LoraIndex
-from .profile import _checkpoint_identity, build_profile, resolve_dialect
+from .profile import _checkpoint_identity, build_profile, resolve_dialect, switch_checkpoint
 
 mcp = _ServerClass("forgeneo")
 
@@ -150,12 +150,16 @@ def lora_info(name: str) -> dict:
 
 
 @mcp.tool()
-def models(action: str = "list", name: str = "", query: str = "", limit: int = 30) -> dict:
+def models(action: str = "list", name: str = "", preset: str = "", query: str = "", limit: int = 30) -> dict:
     """List or load checkpoints. action: "list" | "load" | "refresh".
 
     Loading swaps the model for the whole instance, including any human using
     the web UI at the same time, and takes several seconds — only do it when the
-    operator asked for that model."""
+    operator asked for that model. When the target belongs to a different
+    architecture, its preset, VAE and text encoder are switched with it, since
+    Forge would otherwise load it against whatever modules are selected now. The
+    architecture is inferred from two signals and only acted on when they agree;
+    pass `preset` to state it outright."""
     action = action.lower().strip()
     if action == "refresh":
         result = _client.post("/sdapi/v1/refresh-checkpoints", {})
@@ -164,10 +168,7 @@ def models(action: str = "list", name: str = "", query: str = "", limit: int = 3
     if action == "load":
         if not name:
             return {"ok": False, "error": "name is required to load a checkpoint"}
-        result = _client.set_options({"sd_model_checkpoint": name})
-        if not result.ok:
-            return {"ok": False, "error": result.error}
-        return {"ok": True, "loaded": name, "note": "instance-wide change; affects the web UI too"}
+        return switch_checkpoint(_client, name, preset or None)
 
     if action != "list":
         return {"ok": False, "error": f"unknown action '{action}'"}

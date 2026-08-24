@@ -27,7 +27,6 @@ The bridge answers those questions from **your** setup — your instance's own s
 
 - [Features](#-features)
 - [In practice](#-in-practice)
-- [Supported architectures](#-supported-architectures)
 - [Installation](#-installation)
 - [Configuration](#-configuration)
 - [Tools](#-tools)
@@ -54,6 +53,9 @@ The bridge answers those questions from **your** setup — your instance's own s
 - Where distilled or accelerator LoRAs are part of the workflow, keeps their effect separate from the checkpoint's own behaviour ⭐
 - **Turbo detection as a tri-state** with evidence — `unknown` is a real answer, not a silent `false`
 - Validates that the preset's VAE and text encoder files actually exist
+
+> [!Note]
+> Image generation only for now — video (Wan) is on the [roadmap](#-roadmap).
 
 ### 🗣️ Prompt dialects ⭐
 - **Quality tags per lineage** — a score ladder, booru quality tags, an ordered template, or none at all, depending on what the loaded model was trained on
@@ -86,28 +88,6 @@ You ask for an image in your own words. Before writing anything, the agent check
 > The agent searches your LoRAs for that style, picks up its trigger word and the weight you normally give it, and writes it into the prompt itself. Nothing is added behind your back — the LoRA appears in the prompt you can read.
 
 When something cannot be determined — most often which lineage an SDXL checkpoint came from — it asks once, and remembers the answer for that file.
-
----
-
-## 🧩 Supported architectures
-
-The bridge reads whichever preset your instance reports, so it follows Forge Neo rather than carrying its own list of models. What it adds on top is the prompt dialect each family expects:
-
-| Forge preset | Family | Prompt dialect |
-|---|---|---|
-| `sd` | SD 1.5 lineage | comma-separated tags, emphasis syntax, substantial negative |
-| `xl` | SDXL lineage | **depends on the lineage** — Pony, Illustrious/NoobAI, Animagine and stock SDXL share tensors but not vocabulary, so this one is asked and cached |
-| `anima` | Anima | hybrid — booru tags and prose mix freely |
-| `flux` · `klein` | Flux.1 / Flux.2 | natural language, no quality tags |
-| `qwen` | Qwen-Image | natural language, no quality tags |
-| `krea` | Krea 2 | natural language, no quality tags |
-| `zit` | Z-Image | natural language, no quality tags |
-| `lumina` | Lumina-Image | natural language, no quality tags |
-| `ernie` · `pid` | Ernie-Image / PiD | natural language, no quality tags |
-| `wan` | Wan 2.2 | natural language describing motion — video is on the roadmap |
-
-> [!Note]
-> Adding a lineage means adding its quality tags, tag spelling and structure to one table — [`dialects.py`](forgeneo_mcp/dialects.py). Pull requests for lineages you use are welcome; the values should come from the model's own card rather than from one person's experience with it.
 
 ---
 
@@ -198,7 +178,7 @@ Without `FORGE_PATH_MAP` the bridge still works — it just returns base64 rathe
 | `prompt_dialect` | How this checkpoint expects to be prompted, with its quality tags |
 | `loras` | Which LoRAs match an intent, with trigger words and typical weights |
 | `lora_info` | Full detail for one LoRA, with a ready prompt fragment |
-| `models` | List, load or refresh checkpoints |
+| `models` | List, load or refresh checkpoints — switching architecture brings its VAE and text encoder along |
 | `generate` | Generate from a written prompt — txt2img or img2img |
 | `progress` | Check, interrupt or skip the running job |
 
@@ -215,6 +195,8 @@ Each answer carries its provenance, and falls back honestly rather than guessing
 **Whether an architecture uses shift** — answered by observation, not a list. Forge writes `Shift` into infotext only for engines that consume it, so past generations settle it.
 
 **Prompt dialect** — cache → optional CivitAI lookup → your own past prompts → architecture → the shape of your LoRA library. When all of that comes up short, it returns `unknown` with the candidate lineages instead of guessing, and your answer is cached by file hash so the question is asked once.
+
+**Switching checkpoint** — Forge loads a model against whichever VAE and text encoder are currently selected, so changing architecture means changing preset and modules together, as the UI does. Which architecture a checkpoint belongs to is inferred from two independent signals and only acted on when they agree; otherwise it loads without touching the modules and says why, and you can state the preset outright.
 
 **Metadata sources** — the safetensors header, `.json` sidecars, generation history and the `.txt` infotext sibling are each optional and each a fallback for the others. A clean install simply reports less, and is told what is missing.
 

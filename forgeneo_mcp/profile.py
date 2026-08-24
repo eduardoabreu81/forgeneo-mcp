@@ -397,6 +397,129 @@ def build_profile(client: ForgeClient, history: HistoryIndex) -> ModelProfile | 
 
 
 
+def preset_for_checkpoint(options: dict, checkpoint: str) -> str | None:
+    """Which preset last had this checkpoint selected, per the instance.
+
+    Note what this is *not*: evidence of the checkpoint's architecture. Forge
+    stores the last checkpoint chosen under each preset, so if it was ever
+    selected while the wrong preset was active, the record says so. A live
+    instance was observed with a Krea checkpoint recorded under `anima` for
+    exactly that reason. Corroborate before acting on it.
+    """
+    target = _bare_name(checkpoint)
+    if not target:
+        return None
+    for key, value in options.items():
+        if not key.startswith("forge_checkpoint_") or not value:
+            continue
+        if _bare_name(str(value)) == target:
+            return key[len("forge_checkpoint_"):]
+    return None
+
+
+def preset_from_folder(options: dict, checkpoint: str) -> str | None:
+    """A preset suggested by the folder a checkpoint sits in.
+
+    Independent of the instance's own bookkeeping, which is the point: it gives
+    the registry something to agree or disagree with. Only meaningful when the
+    folder name matches a preset the instance knows about.
+    """
+    parts = [part.strip().lower() for part in str(checkpoint or "").replace("\\", "/").split("/")[:-1]]
+    known = {
+        key[len("forge_checkpoint_"):]
+        for key in options
+        if key.startswith("forge_checkpoint_")
+    }
+    aliases = {"z-image": "zit", "zimage": "zit", "krea 2": "krea", "flux.2": "klein"}
+    for part in reversed(parts):
+        candidate = aliases.get(part, part)
+        if candidate in known:
+            return candidate
+    return None
+
+
+def _bare_name(value: str) -> str:
+    return os.path.basename(str(value or "").replace("\\", "/")).strip().lower()
+
+
+def switch_checkpoint(client: ForgeClient, name: str, preset: str | None = None) -> dict:
+    """Load a checkpoint, bringing its architecture's modules along with it.
+
+    Setting sd_model_checkpoint alone is not enough. Forge builds its loading
+    parameters from `forge_additional_modules`, the *currently* selected VAE and
+    text encoder, so a checkpoint from another architecture would load against
+    the previous architecture's modules. The UI avoids this by changing preset
+    and modules together; this does the same.
+
+    The architecture is inferred from two independent signals — which preset
+    last had this checkpoint selected, and the folder it lives in. They are
+    only acted on when they agree, because neither is reliable alone: a live
+    instance was observed with a Krea checkpoint recorded under `anima`.
+    Pass `preset` to state it outright and skip the inference.
+    """
+    options = client.options()
+    if not options.ok:
+        return {"ok": False, "error": options.error}
+
+    data = options.value or {}
+    current_preset = data.get("forge_preset")
+    from_registry = preset_for_checkpoint(data, name)
+    from_folder = preset_from_folder(data, name)
+
+    notes: list[str] = []
+    if preset:
+        target_preset, confidence = preset, "stated by caller"
+    elif from_registry and from_folder and from_registry != from_folder:
+        target_preset, confidence = None, "conflicting"
+        notes.append(
+            f"cannot tell which architecture this is: it sits in a '{from_folder}' folder but "
+            f"the instance last had it selected under '{from_registry}'. Loading it without "
+            f"changing preset, so it keeps the modules of '{current_preset}'. Pass the preset "
+            "explicitly, or select it once in the UI, to switch modules with it"
+        )
+    elif from_registry and from_folder:
+        target_preset, confidence = from_registry, "registry and folder agree"
+    elif from_registry or from_folder:
+        target_preset = from_registry or from_folder
+        confidence = "single signal only"
+        notes.append(
+            f"architecture inferred from a single signal ({'preset registry' if from_registry else 'folder name'}); "
+            "pass the preset explicitly if this is wrong"
+        )
+    else:
+        target_preset, confidence = None, "unknown"
+        notes.append(
+            f"nothing identifies this checkpoint's architecture, so the modules of "
+            f"'{current_preset}' stay loaded. If it belongs elsewhere, pass the preset"
+        )
+
+    payload: dict[str, object] = {"sd_model_checkpoint": name}
+    if target_preset and target_preset != current_preset:
+        modules = data.get(f"forge_additional_modules_{target_preset}")
+        payload["forge_preset"] = target_preset
+        if modules is not None:
+            payload["forge_additional_modules"] = modules
+        notes.append(
+            f"architecture changed from '{current_preset}' to '{target_preset}'; "
+            "its VAE and text encoder were selected with it"
+        )
+
+    result = client.set_options(payload)
+    if not result.ok:
+        return {"ok": False, "error": result.error, "attempted": payload}
+
+    return {
+        "ok": True,
+        "loaded": name,
+        "preset": target_preset or current_preset,
+        "architecture_confidence": confidence,
+        "signals": {"preset_registry": from_registry, "folder": from_folder},
+        "applied": {key: value for key, value in payload.items() if key != "sd_model_checkpoint"},
+        "notes": notes,
+        "warning": "instance-wide change; anyone using the web UI sees it too",
+    }
+
+
 def _checkpoint_file(client: ForgeClient, checkpoint: str | None) -> str | None:
     """The on-disk path Forge reports for a checkpoint title."""
     if not checkpoint:
