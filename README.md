@@ -1,3 +1,7 @@
+<div align="center">
+  <img src=".github/banner.png" alt="Forge Neo MCP — connect AI agents to Forge Neo through MCP"/>
+</div>
+
 # 🌉 Forge Neo MCP
 
 <div align="center">
