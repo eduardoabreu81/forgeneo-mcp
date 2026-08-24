@@ -71,6 +71,7 @@ The bridge answers those questions from **your** setup — your instance's own s
 ### 🔌 Environment probe ⭐
 - Routes read from the live OpenAPI document, not a hardcoded list
 - Reports which metadata sources exist and degrades when they do not
+- Points at the official download for a missing VAE or text encoder, and can fetch it — never without your explicit go-ahead ⭐
 - Explains an empty history — including when `enable_pnginfo` and `save_txt` are both off
 
 ---
@@ -180,6 +181,7 @@ Without `FORGE_PATH_MAP` the bridge still works — it just returns base64 rathe
 | `lora_info` | Full detail for one LoRA, with a ready prompt fragment |
 | `models` | List, load or refresh checkpoints — switching architecture brings its VAE and text encoder along |
 | `module_check` | Whether the loaded VAE and text encoders match what the architecture needs |
+| `module_download` | Where a missing VAE or text encoder comes from, and fetches it once you approve |
 | `generate` | Generate from a written prompt — txt2img or img2img |
 | `progress` | Check, interrupt or skip the running job |
 

@@ -8,6 +8,7 @@ prompt it is given and never injects a LoRA on its own — discovery lives in
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 # httpx logs one INFO line per request. Over stdio that lands in the client's
@@ -20,14 +21,20 @@ try:  # SDK 2.x renamed FastMCP to MCPServer; both expose the same decorators
 except ImportError:  # pragma: no cover - depends on installed SDK
     from mcp.server.fastmcp import FastMCP as _ServerClass
 
-from . import dialects, identity, modules
+from . import dialects, downloads, fetcher, identity, modules
 from .capabilities import probe
 from .client import ForgeClient
 from .config import Config
 from .generate import build_payload, encode_init_image, resolve_output_dir, run_generation
 from .history import HistoryIndex
 from .loras import LoraIndex
-from .profile import _checkpoint_identity, build_profile, resolve_dialect, switch_checkpoint
+from .profile import (
+    _checkpoint_identity,
+    _module_health,
+    build_profile,
+    resolve_dialect,
+    switch_checkpoint,
+)
 
 mcp = _ServerClass("forgeneo")
 
@@ -225,6 +232,104 @@ def module_check(preset: str = "") -> dict:
             "currently_selected": [str(name).replace(chr(92), "/").split("/")[-1] for name in selected],
         }
     return {"ok": True, **report}
+
+
+
+@mcp.tool()
+def module_download(preset: str = "", label: str = "", confirm: bool = False) -> dict:
+    """Find, and optionally fetch, a VAE or text encoder the architecture needs.
+
+    Called with no arguments it lists what the active preset is missing and
+    where each file comes from, downloading nothing. Downloading requires both a
+    `label` naming one entry and `confirm=True`, and the operator has to agree
+    first: these are multi-gigabyte files written into their models folder,
+    often across a network share.
+
+    Links come from the Forge Classic wiki's Download Models page. Where several
+    builds exist — bf16, fp8_scaled, gguf — they are all offered, because which
+    to take depends on the operator's hardware, not on a default worth hiding."""
+    options = _client.options()
+    if not options.ok:
+        return {"ok": False, "error": options.error}
+
+    data = options.value or {}
+    arch = (preset or data.get("forge_preset") or "").strip()
+    available = downloads.for_architecture(arch)
+    if not available:
+        return {"ok": True, "architecture": arch, "available": [], "detail": "no catalogue entry"}
+
+    root = _forge_models_root(data)
+
+    if not label:
+        health = _module_health(_client, data, arch)
+        gaps = []
+        for problem in health.get("problems", []):
+            gaps.append(problem)
+        return {
+            "ok": True,
+            "architecture": arch,
+            "current_state": "healthy" if health.get("healthy") else "incomplete",
+            "problems": gaps,
+            "available": [entry.as_dict() for entry in available],
+            "forge_root": root,
+            "how_to_download": (
+                "ask the operator which build they want, then call again with that label and "
+                "confirm=True"
+            ),
+        }
+
+    chosen = next((entry for entry in available if entry.label.lower() == label.strip().lower()), None)
+    if chosen is None:
+        return {
+            "ok": False,
+            "error": f"no entry called '{label}' for {arch}",
+            "choices": [entry.label for entry in available],
+        }
+
+    if not root:
+        return {
+            "ok": False,
+            "error": (
+                "cannot locate the Forge models folder from here. Set FORGE_PATH_MAP, or download "
+                f"{chosen.direct_url} into {chosen.target_folder} manually"
+            ),
+        }
+
+    folder = os.path.join(root, *chosen.target_folder.split("/"))
+    intent = fetcher.plan(chosen.direct_url, folder, chosen.filename)
+
+    if not confirm:
+        return {
+            "ok": True,
+            "would_download": chosen.as_dict(),
+            "plan": intent.as_dict(),
+            "confirmed": False,
+            "detail": "nothing was downloaded; pass confirm=True once the operator agrees",
+        }
+
+    result = fetcher.fetch(chosen.direct_url, folder, chosen.filename)
+    return {"architecture": arch, "label": chosen.label, **result}
+
+
+def _forge_models_root(options: dict) -> str | None:
+    """The locally reachable Forge root, derived from a module path.
+
+    Returns the installation root, not the models folder: catalogue entries
+    carry their own "models/VAE" style target, so returning the models folder
+    here produced models/models/VAE.
+    """
+    for key, value in options.items():
+        if not key.startswith("forge_additional_modules") or not isinstance(value, list):
+            continue
+        for item in value:
+            normalised = str(item).replace(chr(92), "/")
+            marker = normalised.lower().find("/models/")
+            if marker == -1:
+                continue
+            local = _client.config.localise(normalised[:marker])
+            if local and os.path.isdir(local):
+                return local
+    return None
 
 
 @mcp.tool()
