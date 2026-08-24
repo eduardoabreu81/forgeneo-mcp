@@ -11,7 +11,7 @@ import json
 import os
 from dataclasses import dataclass
 
-from . import civitai, identity
+from . import civitai, identity, modules
 from .client import ForgeClient
 from .history import HistoryIndex
 from .presets import LINEAGE_PROMPT_STYLE, PROMPT_STYLE, defaults_for, detect_lineage
@@ -103,6 +103,7 @@ class ModelProfile:
     accelerators: tuple[str, ...]
     accelerator_habit: dict
     modules: tuple[ModuleCheck, ...]
+    module_health: dict
     samples_observed: int
     known_regimes: tuple[dict, ...]
     warnings: tuple[str, ...]
@@ -133,6 +134,7 @@ class ModelProfile:
             "modules": [
                 {"name": m.name, "ok": m.exists, "path": m.path} for m in self.modules
             ],
+            "module_health": self.module_health,
             "samples_observed": self.samples_observed,
             "warnings": list(self.warnings),
         }
@@ -336,6 +338,10 @@ def build_profile(client: ForgeClient, history: HistoryIndex) -> ModelProfile | 
         accelerators, samples = (), 0
         warnings.append("no parameter guidance available; ask the operator before generating")
 
+    health = _module_health(client, data, preset)
+    for problem in health.get("problems", ()):
+        warnings.append(problem)
+
     habit = history.accelerator_habit()
     if habit.get("known") and habit.get("rate") is not None:
         rate = habit["rate"]
@@ -381,6 +387,7 @@ def build_profile(client: ForgeClient, history: HistoryIndex) -> ModelProfile | 
         accelerators=accelerators,
         accelerator_habit=habit,
         modules=modules,
+        module_health=health,
         samples_observed=samples,
         known_regimes=tuple(
             {
@@ -517,6 +524,52 @@ def switch_checkpoint(client: ForgeClient, name: str, preset: str | None = None)
         "applied": {key: value for key, value in payload.items() if key != "sd_model_checkpoint"},
         "notes": notes,
         "warning": "instance-wide change; anyone using the web UI sees it too",
+    }
+
+
+
+def _module_health(client: ForgeClient, options: dict, preset: str | None) -> dict:
+    """A quiet check of the preset's modules against the architecture reference.
+
+    The preset is what Forge will actually load, so it is the operating truth
+    and this never overrides it. The reference exists to notice when the preset
+    has drifted — Forge records the last selection made under a preset, so
+    loading a checkpoint while another preset was active leaves that preset's
+    modules behind. Silent unless something looks off.
+    """
+    if not preset:
+        return {"checked": False}
+
+    listing = client.modules()
+    if not listing.ok:
+        return {"checked": False, "error": listing.error}
+
+    selected = options.get(f"forge_additional_modules_{preset}") or []
+    report = modules.audit(preset, list(selected), list(listing.value or []))
+    if not report.get("known"):
+        return {"checked": False, "reason": "no reference for this architecture"}
+
+    problems: list[str] = []
+    for gap in report.get("missing", []):
+        candidates = gap.get("candidates_installed") or []
+        if candidates:
+            problems.append(
+                f"{preset} has no {gap['need']} selected, but {candidates[0]} is installed and fits"
+            )
+        else:
+            problems.append(f"{preset} needs a {gap['need']} and none is installed")
+    if report.get("unrecognised"):
+        names = ", ".join(report["unrecognised"]["modules"])
+        problems.append(
+            f"{preset} has modules loaded that this architecture does not ask for ({names}) — "
+            "either a community build named differently, or left over from another preset"
+        )
+
+    return {
+        "checked": True,
+        "healthy": not problems,
+        "problems": problems,
+        "loaded": [item["loaded"] for item in report.get("satisfied", [])],
     }
 
 

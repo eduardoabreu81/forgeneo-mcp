@@ -143,3 +143,11 @@ def test_notes_do_not_add_claims_the_reference_lacks():
 def test_unspecified_vae_says_required_not_absent():
     report = audit("pid", [], AVAILABLE)
     assert report["vae"]["status"].startswith("required")
+
+
+def test_xl_note_covers_every_lineage():
+    # Pony, Illustrious and stock SDXL all run under the `xl` preset and share
+    # its VAE; they differ in prompt dialect, not in modules.
+    note = ARCH_MODULES["xl"].note.lower()
+    for lineage in ("pony", "illustrious", "animagine"):
+        assert lineage in note

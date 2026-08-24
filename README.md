@@ -52,7 +52,7 @@ The bridge answers those questions from **your** setup — your instance's own s
 - **Sampling values taken from your own outputs** when you have them, and from the instance's settings when you do not
 - Where distilled or accelerator LoRAs are part of the workflow, keeps their effect separate from the checkpoint's own behaviour ⭐
 - **Turbo detection as a tri-state** with evidence — `unknown` is a real answer, not a silent `false`
-- Validates that the preset's VAE and text encoder files actually exist
+- Validates the preset's VAE and text encoders — that the files exist, and that they match what the architecture expects ⭐
 
 > [!Note]
 > Image generation only for now — video (Wan) is on the [roadmap](#-roadmap).
@@ -197,7 +197,7 @@ Each answer carries its provenance, and falls back honestly rather than guessing
 
 **Prompt dialect** — cache → optional CivitAI lookup → your own past prompts → architecture → the shape of your LoRA library. When all of that comes up short, it returns `unknown` with the candidate lineages instead of guessing, and your answer is cached by file hash so the question is asked once.
 
-**Which VAE and text encoders an architecture needs** — from the [Forge wiki's Download Models page](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Download-Models), because the instance cannot answer it: `forge_additional_modules_<arch>` records the last selection made under a preset, so loading a checkpoint while another preset is active overwrites it. Requirements are name patterns, never exact filenames, since several legitimate builds serve the same role. Where the wiki names no VAE, that is reported rather than guessed.
+**Which VAE and text encoders to load** — the preset is the operating truth, since it is what Forge actually applies; the reference below only notices when a preset has drifted, and says so rather than overriding it. Requirements come from the [Forge wiki's Download Models page](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Download-Models), because the instance cannot answer it: `forge_additional_modules_<arch>` records the last selection made under a preset, so loading a checkpoint while another preset is active overwrites it. Requirements are name patterns, never exact filenames, since several legitimate builds serve the same role. Where the wiki names no VAE, that is reported rather than guessed.
 
 **Switching checkpoint** — Forge loads a model against whichever VAE and text encoder are currently selected, so changing architecture means changing preset and modules together, as the UI does. Which architecture a checkpoint belongs to is inferred from two independent signals and only acted on when they agree; otherwise it loads without touching the modules and says why, and you can state the preset outright.
 

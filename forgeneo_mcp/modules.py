@@ -83,7 +83,11 @@ ARCH_MODULES: dict[str, ArchModules] = {
         requirements=(
             ModuleRequirement(VAE, "SDXL VAE (sdxl-vae-fp16-fix)", ("sdxl-vae", "sdxl_vae")),
         ),
-        note="the reference lists a VAE and marks the text encoder as N/A",
+        note=(
+            "applies to every SDXL lineage - Pony, Illustrious/NoobAI, Animagine and stock SDXL "
+            "all run under this preset and share its VAE. They differ in prompt dialect, not in "
+            "modules. The reference marks the text encoder N/A"
+        ),
     ),
     "lumina": ArchModules(
         requirements=(
