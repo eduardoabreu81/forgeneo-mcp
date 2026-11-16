@@ -262,4 +262,6 @@ Made with ❤️ for the Stable Diffusion community
 
 **[Report Bug](https://github.com/eduardoabreu81/forgeneo-mcp/issues)** • **[Request Feature](https://github.com/eduardoabreu81/forgeneo-mcp/issues)** • **[Discussions](https://github.com/eduardoabreu81/forgeneo-mcp/discussions)** • **[☕ Ko-fi](https://ko-fi.com/eduardoabreu81)**
 
+<sub>More Forge Neo extensions at <a href="https://eduardoabreu81.github.io/">eduardoabreu81.github.io</a></sub>
+
 </div>
